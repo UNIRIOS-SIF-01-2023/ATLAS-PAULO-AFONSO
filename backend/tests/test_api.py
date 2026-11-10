@@ -1082,3 +1082,140 @@ def test_endpoints_rooftop_servem_camada_local(tmp_path, monkeypatch):
     assert len(layer.json()["features"]) == 2
     assert polygonos.json()["name"] == "cnefe_rooftop_poligonos"
     assert len(polygonos.json()["features"]) == 1
+
+    # Aliases sem /vila-nobre
+    assert client.get("/api/rooftop/meta").json() == meta.json()
+    assert client.get("/api/rooftop").json() == layer.json()
+    assert client.get("/api/rooftop/poligonos").json() == polygonos.json()
+
+
+def test_import_data_cnefe_rooftop_integration(tmp_path):
+    import import_data
+
+    # 1. cnefe_address_key
+    uid, comp = import_data.cnefe_address_key({
+        "COD_UNICO_ENDERECO": "999", "COD_SETOR": "1", "NUM_QUADRA": "2",
+        "NUM_FACE": "3", "NOM_SEGLOGR": "RUA A", "NUM_ENDERECO": "10",
+        "DSC_MODIFICADOR": "",
+    })
+    assert uid == "999"
+    assert comp == "1_2_3|RUA A|10|"
+
+    # SN usa o próprio UID
+    uid_sn, comp_sn = import_data.cnefe_address_key({
+        "COD_UNICO_ENDERECO": "888", "DSC_MODIFICADOR": "S/N",
+    })
+    assert uid_sn == comp_sn == "888"
+
+    # 2. relate_points_via_rooftop
+    buildings = [{"id": "ov-1", "geometry": {"type": "Polygon", "coordinates": []}}]
+    osm = [{"properties": {"osm_id": "123"}, "geometry": {"type": "Polygon", "coordinates": []}}]
+    qg = [
+        {"properties": {"COD_UNICO_ENDERECO": "999", "COD_SETOR": "1", "NUM_QUADRA": "2", "NUM_FACE": "3", "NOM_SEGLOGR": "RUA A", "NUM_ENDERECO": "10", "DSC_MODIFICADOR": ""}},
+        {"properties": {"COD_UNICO_ENDERECO": "888", "DSC_MODIFICADOR": "S/N"}},
+        {"properties": {"COD_UNICO_ENDERECO": "777", "DSC_MODIFICADOR": "S/N"}},
+    ]
+    rooftop_matches = {
+        "1_2_3|RUA A|10|": {"bld_id": "ov-1"},
+        "888": {"bld_id": "osm-123"},
+    }
+
+    pt_to_ov, osm_match = import_data.relate_points_via_rooftop(buildings, osm, qg, rooftop_matches)
+    assert pt_to_ov == {0: 0}
+    assert osm_match == {1: 0}
+    assert 2 not in pt_to_ov and 2 not in osm_match
+
+
+def test_cnefe_rooftop_tarefa1_esquina_e_donos():
+    import cnefe_rooftop
+
+    donos = cnefe_rooftop.RegistroDonos()
+    assert donos.pode_atribuir(1, "face_A")
+    donos.vincular(1, "face_A")
+    assert not donos.pode_atribuir(1, "face_B")
+    assert donos.pode_atribuir(1, "face_A")
+
+    # Múltiplos endereços na mesma face
+    donos.vincular(1, "face_A")
+    assert donos.contagem[1] == 2
+
+    # Desvinculação com liberação de edificação
+    donos.desvincular(1)
+    assert not donos.pode_atribuir(1, "face_B")
+    donos.desvincular(1)
+    assert donos.pode_atribuir(1, "face_B")
+
+
+def test_cnefe_rooftop_tarefa2_conflitos():
+    import geopandas as gpd
+    import pandas as pd
+    import shapely
+    from shapely.geometry import Point, Polygon
+
+    import cnefe_rooftop
+
+    # Edificação com 2 endereços com números diferentes
+    poly = Polygon([(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)])
+    blds = gpd.GeoDataFrame([{"id": "b1", "bld_idx": 0}], geometry=[poly], crs=31984)
+
+    a = pd.DataFrame([
+        {
+            "addr_key": "k1", "bld": 0, "face_key": "f1", "num": 100, "sn": False,
+            "confianca": "alta", "motivo_confianca": "alta", "tx": 1.0, "ty": 0.0,
+            "geometry": Point(2, 5),
+        },
+        {
+            "addr_key": "k2", "bld": 0, "face_key": "f1", "num": 200, "sn": False,
+            "confianca": "alta", "motivo_confianca": "alta", "tx": 1.0, "ty": 0.0,
+            "geometry": Point(4, 5),
+        },
+    ])
+
+    res = cnefe_rooftop.avaliar_conflitos(a, blds)
+    assert bool(res.at[0, "compartilhado"]) is True
+    assert res.at[0, "confianca"] == "media"
+    assert res.at[0, "motivo_confianca"] == "compartilhado"
+
+    # Exceção mesmo número
+    a_mesmo_num = pd.DataFrame([
+        {
+            "addr_key": "k1", "bld": 0, "face_key": "f1", "num": 100, "sn": False,
+            "confianca": "alta", "motivo_confianca": "alta", "tx": 1.0, "ty": 0.0,
+            "geometry": Point(2, 5),
+        },
+        {
+            "addr_key": "k2", "bld": 0, "face_key": "f1", "num": 100, "sn": False,
+            "confianca": "alta", "motivo_confianca": "alta", "tx": 1.0, "ty": 0.0,
+            "geometry": Point(4, 5),
+        },
+    ])
+    res_mn = cnefe_rooftop.avaliar_conflitos(a_mesmo_num, blds)
+    assert res_mn.at[0, "confianca"] == "alta"
+    assert res_mn.at[0, "motivo_confianca"] == "mesmo_numero"
+
+
+def test_cnefe_rooftop_tarefa3_anexos():
+    import geopandas as gpd
+    import pandas as pd
+    from shapely.geometry import Point, Polygon
+
+    import cnefe_rooftop
+
+    # Polígono A na frente (y: 0..10), Polígono B no fundo (y: 15..22)
+    poly_A = Polygon([(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)])
+    poly_B = Polygon([(1, 15), (9, 15), (9, 22), (1, 22), (1, 15)])
+    blds = gpd.GeoDataFrame([
+        {"id": "bld_A", "bld_idx": 0},
+        {"id": "bld_B", "bld_idx": 1},
+    ], geometry=[poly_A, poly_B], crs=31984)
+
+    a = pd.DataFrame([{
+        "bld": 0, "face_key": "f1", "tx": 1.0, "ty": 0.0, "nx": 0.0, "ny": 1.0,
+        "geometry": Point(5, 5),
+    }])
+
+    a, blds_res, df_anexos = cnefe_rooftop.vincular_anexos(a, blds)
+    assert len(df_anexos) == 1
+    assert len(a) == 2
+    assert blds_res.at[1, "tipo_vinculo"] == "anexo"
+    assert blds_res.at[1, "bld_principal"] == "bld_A"
