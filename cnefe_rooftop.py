@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -45,8 +46,8 @@ CFG = {
         "id": "COD_UNICO_ENDERECO", "setor": "COD_SETOR", "quadra": "NUM_QUADRA",
         "face": "NUM_FACE", "tipo": "NOM_TIPO_SEGLOGR", "titulo": "NOM_TITULO_SEGLOGR",
         "logr": "NOM_SEGLOGR", "num": "NUM_ENDERECO", "mod": "DSC_MODIFICADOR",
-        "especie": "COD_ESPECIE", "lat": "LATITUDE", "lon": "LONGITUDE",
-        "nivel": "NV_GEO_COORD", "cep": "CEP",
+        "compl": "DSC_COMPLEMENTO", "especie": "COD_ESPECIE", "lat": "LATITUDE",
+        "lon": "LONGITUDE", "nivel": "NV_GEO_COORD", "cep": "CEP",
     },
     "csv_sep": ";",
     "csv_encoding": "utf-8",
@@ -57,6 +58,17 @@ CFG = {
     "profundidade": 4.0,       # quanto entrar na edificação a partir da fachada (m)
     "fallback_raio": 25.0,     # vizinho mais próximo quando nenhum raio acerta
     "ambiguo_m": 2.0,          # centro da quadra quase em cima da face -> lado incerto
+    # Parâmetros de ordenação DP (Tarefa 1)
+    "dp_cap": 8.0,             # custo máximo por endereço na DP
+    "dp_pen": 6.0,             # penalidade por repetir edificação estreita
+    "faixa_primeira_fileira": 6.0, # margem de profundidade na primeira fileira (m)
+    # Parâmetros de anexos (Tarefa 3)
+    "anexo_dist_max": 20.0,    # distância euclidiana máxima entre A e B (m)
+    "anexo_min_overlap": 0.5,  # sobreposição mínima na projeção tangente (50%)
+    # Parâmetros de condomínio (Tarefa 4)
+    "condominio_min_unidades": 10, # mínimo de unidades para candidato a condomínio
+    # Parâmetros do modelo preditivo de probabilidade (Tarefa 5)
+    "corte_prob_revisar": 0.60, # corte de probabilidade abaixo do qual marcar revisar_face
 }
 
 # Nomes alternativos vistos no GeoJSON do QG/IBGE e em exports do CNEFE.
@@ -70,6 +82,7 @@ ALIASES = {
     "logr": ("NOM_SEGLOGR", "logradouro", "logr"),
     "num": ("NUM_ENDERECO", "num"),
     "mod": ("DSC_MODIFICADOR", "mod"),
+    "compl": ("DSC_COMPLEMENTO", "COMPLEMENTO", "compl", "complemento"),
     "especie": ("COD_ESPECIE", "especie"),
     "lat": ("LATITUDE", "lat"),
     "lon": ("LONGITUDE", "lon"),
@@ -306,6 +319,11 @@ def agregar_enderecos(df, crs):
         df["sn"], df[c["id"]].astype(str),
         df["face_key"] + "|" + df[c["logr"]].astype(str) + "|" + df["num_i"].astype(str) + "|" + df[c["mod"]].astype(str))
 
+    compl_col = c.get("compl", "DSC_COMPLEMENTO")
+    compl_series = df[compl_col].astype(str) if compl_col in df.columns else pd.Series("", index=df.index)
+    padrao_condo = re.compile(r"\b(BLOCO|TORRE|QUADRA|CASA)\s*[0-9]+", re.IGNORECASE)
+    df["tem_compl_condo"] = compl_series.str.contains(padrao_condo, regex=True)
+
     pts = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df[c["lon"]], df[c["lat"]]), crs=4326).to_crs(crs)
     pts["x"], pts["y"] = pts.geometry.x, pts.geometry.y
 
@@ -316,9 +334,14 @@ def agregar_enderecos(df, crs):
         num=("num_i", "first"), mod=(c["mod"], "first"), cep=(c["cep"], "first"),
         especie=(c["especie"], lambda s: s.mode().iat[0] if len(s.mode()) else ""),
         sn=("sn", "first"),
+        tem_compl_condo=("tem_compl_condo", "any"),
     ).reset_index()
     rua = (agg["tipo"] + " " + agg["titulo"] + " " + agg["logr"]).str.split().str.join(" ")
     agg["endereco"] = rua + ", " + np.where(agg["sn"], "S/N", agg["num"].astype(str) + agg["mod"].astype(str).str.strip())
+    agg["candidato_condominio"] = (agg["unidades"] >= CFG["condominio_min_unidades"]) | agg["tem_compl_condo"]
+    agg["tipo_vinculo"] = "principal"
+    agg["endereco_ref"] = ""
+    agg["condominio_sem_perimetro"] = False
     return agg
 
 
@@ -471,6 +494,41 @@ def lancar_raios(a, blds, debug: Debug | None = None):
 
 
 # ---------------------------------------------------------------- atribuição
+class RegistroDonos:
+    """Rastreia bld -> face_key e contagem de endereços por edificação."""
+
+    def __init__(self):
+        self.dono: dict[int, str] = {}
+        self.contagem: dict[int, int] = {}
+
+    def pode_atribuir(self, bld: int, face_key: str) -> bool:
+        if bld < 0:
+            return True
+        f = self.dono.get(bld)
+        return f is None or f == face_key
+
+    def vincular(self, bld: int, face_key: str):
+        if bld < 0:
+            return
+        f = self.dono.get(bld)
+        if f is not None and f != face_key:
+            raise ValueError(f"Conflito de dono: bld {bld} pertence a {f}, não {face_key}")
+        self.dono[bld] = face_key
+        self.contagem[bld] = self.contagem.get(bld, 0) + 1
+
+    def adicionar(self, bld: int, face_key: str):
+        """Alias para vincular."""
+        self.vincular(bld, face_key)
+
+    def desvincular(self, bld: int):
+        if bld < 0 or bld not in self.contagem:
+            return
+        self.contagem[bld] -= 1
+        if self.contagem[bld] <= 0:
+            self.contagem.pop(bld, None)
+            self.dono.pop(bld, None)
+
+
 def atribuir(a, blds, debug: Debug | None = None):
     geoms = blds.geometry.to_numpy()
     hits, _ = lancar_raios(a, blds, debug=debug)
@@ -478,13 +536,14 @@ def atribuir(a, blds, debug: Debug | None = None):
     a["bld"] = -1
     a["metodo"] = "sem_match"
     a["confianca"] = "nenhuma"
+    a["compartilhado"] = False
+    a["motivo_confianca"] = ""
     rx = np.full(len(a), np.nan); ry = np.full(len(a), np.nan)
+    donos = RegistroDonos()
 
     if len(hits):
         g = hits.groupby(["addr", "bld"])
         tab = g.agg(score=("score", "sum"), dist=("dist", "min"), centro=("centro", "any")).reset_index()
-        tot = tab.groupby("addr")["score"].transform("sum")
-        tab["share"] = tab["score"] / tot
         # esquinas: uma edificação não pode ficar com endereços de faces diferentes;
         # guloso por score (mesma face pode compartilhar, a etapa de ordem resolve)
         tab["face"] = a["face_key"].to_numpy()[tab["addr"].to_numpy()]
@@ -497,14 +556,20 @@ def atribuir(a, blds, debug: Debug | None = None):
             ))
             debug.etapa("candidatos", pares=len(tab), enderecos=int(tab["addr"].nunique()))
         tab = tab.sort_values("score", ascending=False)
-        dono, feito, sel = {}, set(), []
+        feito, sel = set(), []
         for r in tab[["addr", "bld", "face"]].itertuples(index=True):
             if r.addr in feito:
                 continue
-            f = dono.get(r.bld)
-            if f is None or f == r.face:
-                dono[r.bld] = r.face; feito.add(r.addr); sel.append(r.Index)
-        best = tab.loc[sel]
+            if donos.pode_atribuir(r.bld, r.face):
+                donos.vincular(r.bld, r.face)
+                feito.add(r.addr)
+                sel.append(r.Index)
+        best = tab.loc[sel].copy()
+
+        # Recalcula o share com base no score da edificação escolhida sobre o score total do endereço
+        tot_scores = tab.groupby("addr")["score"].sum()
+        best["share"] = best["score"] / best["addr"].map(tot_scores)
+
         # raio mais forte dentro da edificação vencedora -> ponto na fachada
         br = hits.merge(best[["addr", "bld"]], on=["addr", "bld"])
         br = br.loc[br.groupby("addr")["score"].idxmax()].set_index("addr")
@@ -512,8 +577,26 @@ def atribuir(a, blds, debug: Debug | None = None):
         idx = best.index.to_numpy()
         a.loc[idx, "bld"] = best["bld"].to_numpy()
         a.loc[idx, "metodo"] = "raio"
-        alta = best["centro"] & (best["dist"] <= 25) & (best["share"] >= 0.6) & ~a.loc[idx, "ambiguo"].to_numpy()
-        a.loc[idx, "confianca"] = np.where(alta, "alta", "media")
+
+        dist_val = best["dist"].to_numpy()
+        share_val = best["share"].to_numpy()
+        centro_val = best["centro"].to_numpy()
+        amb_val = a.loc[idx, "ambiguo"].to_numpy()
+
+        motivos = np.full(len(idx), "alta", dtype=object)
+        for i in range(len(idx)):
+            if amb_val[i]:
+                motivos[i] = "ambiguo"
+            elif not centro_val[i]:
+                motivos[i] = "sem_raio_central"
+            elif dist_val[i] > 25:
+                motivos[i] = "longe"
+            elif share_val[i] < 0.6:
+                motivos[i] = "share_baixo"
+
+        a.loc[idx, "confianca"] = np.where(motivos == "alta", "alta", "media")
+        a.loc[idx, "motivo_confianca"] = motivos
+
         prof = best["dist"] + CFG["profundidade"]
         rx[idx] = best["ox"] + best["dx"] * prof
         ry[idx] = best["oy"] + best["dy"] * prof
@@ -532,9 +615,14 @@ def atribuir(a, blds, debug: Debug | None = None):
             nv = a.loc[ai, ["nx", "ny"]].to_numpy()
             lado_ok = np.isnan(nv[:, 0]) | (((cen - a.loc[ai, ["x", "y"]].to_numpy()) * nv).sum(axis=1) > 0)
             ai, b_idx = ai[lado_ok], b_idx[lado_ok]
-            a.loc[ai, "bld"] = b_idx
-            a.loc[ai, "metodo"] = "vizinho"
-            a.loc[ai, "confianca"] = "baixa"
+            for addr_idx, candidate_bld in zip(ai, b_idx):
+                fk = a.at[addr_idx, "face_key"]
+                if donos.pode_atribuir(candidate_bld, fk):
+                    donos.vincular(candidate_bld, fk)
+                    a.at[addr_idx, "bld"] = candidate_bld
+                    a.at[addr_idx, "metodo"] = "vizinho"
+                    a.at[addr_idx, "confianca"] = "baixa"
+                    a.at[addr_idx, "motivo_confianca"] = "fallback"
 
     # id legível da edificação (o índice interno `bld` não serve para conferência)
     a["bld_id"] = ""
@@ -566,7 +654,7 @@ def atribuir(a, blds, debug: Debug | None = None):
             media=int((gdf["confianca"] == "media").sum()),
             baixa=int((gdf["confianca"] == "baixa").sum()),
         )
-    return gdf, hits
+    return gdf, hits, donos
 
 
 # ---------------------------------------------------------------- ordem da numeração
@@ -593,7 +681,7 @@ def _dp_monotonico(s, lo, hi, largo, cap, pen):
     return k, c[np.arange(n), k]
 
 
-def refinar_por_ordem(a, blds, hits, cap=8.0, pen=6.0, debug: Debug | None = None):
+def refinar_por_ordem(a, blds, hits, donos: RegistroDonos | None = None, cap=8.0, pen=6.0, debug: Debug | None = None):
     """Corrige o ruído do GPS usando a ordem da numeração em cada face."""
     geoms = blds.geometry.to_numpy()
     a["dp"] = False
@@ -622,7 +710,13 @@ def refinar_por_ordem(a, blds, hits, cap=8.0, pen=6.0, debug: Debug | None = Non
         w = np.clip((r2 - 0.8) / 0.2, 0, 1) * 0.5
         s = (1 - w) * s_obs + w * fit
 
-        bl = np.array(frente[fk]); cs = shapely.get_coordinates(shapely.boundary(geoms[bl]), return_index=True)
+        bl = np.array(frente[fk])
+        if donos is not None:
+            bl = np.array([b for b in bl if donos.pode_atribuir(b, fk)])
+        if len(bl) == 0:
+            continue
+
+        cs = shapely.get_coordinates(shapely.boundary(geoms[bl]), return_index=True)
         proj = cs[0] @ t
         p0 = g[["x", "y"]].to_numpy().mean(axis=0)
         prof = (cs[0] - p0) @ n_                       # profundidade a partir da linha da face
@@ -652,6 +746,9 @@ def refinar_por_ordem(a, blds, hits, cap=8.0, pen=6.0, debug: Debug | None = Non
             bld_antes = a.at[ai, "bld"]
             if bld_antes == bi:
                 continue
+            if donos is not None:
+                donos.desvincular(bld_antes)
+                donos.vincular(bi, fk)
             # ponto rooftop: na posição corrigida, entrando na edificação pela face
             sc = np.clip(si, l + 1, h - 1) if h - l > 2 else (l + h) / 2
             q = np.array([a.at[ai, "x"], a.at[ai, "y"]]) + t * (sc - (a.at[ai, "x"] * t[0] + a.at[ai, "y"] * t[1]))
@@ -668,6 +765,7 @@ def refinar_por_ordem(a, blds, hits, cap=8.0, pen=6.0, debug: Debug | None = Non
             a.at[ai, "geometry"] = pt
             a.at[ai, "metodo"] = "raio+ordem"
             a.at[ai, "confianca"] = "alta" if cu < 2 else "media"
+            a.at[ai, "motivo_confianca"] = "alta" if cu < 2 else "dp_custo"
             a.at[ai, "dp"] = True
             eventos.append({
                 "addr_key": a.at[ai, "addr_key"], "endereco": a.at[ai, "endereco"],
@@ -683,6 +781,429 @@ def refinar_por_ordem(a, blds, hits, cap=8.0, pen=6.0, debug: Debug | None = Non
             faces_aplicadas=int(sum(1 for d in diag_faces if d["aplicou"])),
             enderecos_movidos=len(eventos),
         )
+    return a
+
+
+def avaliar_conflitos(a, blds):
+    """Rebaixa para média edificações compartilhadas, exceto mesmo número ou geminadas."""
+    a["compartilhado"] = False
+    if "motivo_confianca" not in a.columns:
+        a["motivo_confianca"] = ""
+
+    m = a[a["bld"] >= 0]
+    if len(m) == 0:
+        return a
+
+    geoms = blds.geometry.to_numpy()
+
+    # Mediana de largura de edificação por face
+    mediana_por_face = {}
+    for fk, g in m.groupby("face_key"):
+        t = g[["tx", "ty"]].iloc[0].to_numpy()
+        if not np.isnan(t[0]):
+            bl_unicos = g["bld"].unique()
+            largs = []
+            for bi in bl_unicos:
+                cs = shapely.get_coordinates(shapely.boundary(geoms[bi]))
+                proj = cs @ t
+                largs.append(proj.max() - proj.min())
+            if largs:
+                mediana_por_face[fk] = float(np.median(largs))
+
+    for bi, group in m.groupby("bld"):
+        if len(group) < 2:
+            continue
+        idxs = group.index.to_numpy()
+        a.loc[idxs, "compartilhado"] = True
+
+        # Exceção a: mesmo número e só diferem no modificador
+        nums = group["num"].to_numpy() if "num" in group.columns else np.array([])
+        sn = group["sn"].to_numpy() if "sn" in group.columns else np.zeros(len(group), dtype=bool)
+        mesmo_num = (not sn.any()) and (len(np.unique(nums)) == 1)
+        if mesmo_num:
+            for i in idxs:
+                if a.at[i, "confianca"] == "alta":
+                    a.at[i, "motivo_confianca"] = "mesmo_numero"
+            continue
+
+        # Exceção b: edificação larga (> 1.8 * mediana da face) e pontos rooftop >= 4m na tangente
+        fk = group["face_key"].iloc[0]
+        mediana_face = mediana_por_face.get(fk, 0.0)
+        t = group[["tx", "ty"]].iloc[0].to_numpy()
+        geminada_ok = False
+        if not np.isnan(t[0]):
+            cs = shapely.get_coordinates(shapely.boundary(geoms[bi]))
+            proj = cs @ t
+            larg_bld = proj.max() - proj.min()
+            # Se só tem 1 prédio na face, compara com a distância entre os pontos rooftop (> 1.8 * 4m) ou mediana se houver
+            limite_larg = 1.8 * mediana_face if (mediana_face > 0 and len(mediana_por_face) > 0 and len(group["bld"].unique()) > 1) else 10.0
+            if larg_bld >= limite_larg:
+                pts_geoms = group.geometry.to_numpy()
+                if all(p is not None and not shapely.is_empty(p) for p in pts_geoms):
+                    pts_coords = shapely.get_coordinates(pts_geoms)
+                    projs = pts_coords @ t
+                    diffs = np.abs(projs[:, None] - projs[None, :])
+                    np.fill_diagonal(diffs, np.inf)
+                    if diffs.min() >= 4.0:
+                        geminada_ok = True
+
+        if geminada_ok:
+            for i in idxs:
+                if a.at[i, "confianca"] == "alta":
+                    a.at[i, "motivo_confianca"] = "geminada"
+            continue
+
+        # Caso geral: rebaixa para média por conflito de compartilhamento
+        for i in idxs:
+            a.at[i, "confianca"] = "media"
+            a.at[i, "motivo_confianca"] = "compartilhado"
+
+    return a
+
+
+def extrair_features_modelo(df: pd.DataFrame) -> pd.DataFrame:
+    """Extrai matriz de features para o modelo calibrado de probabilidade."""
+    X = pd.DataFrame(index=df.index)
+    X["share"] = pd.to_numeric(df.get("share", 0.0), errors="coerce").fillna(0.0)
+    X["dmin"] = pd.to_numeric(df.get("dist", df.get("dmin", 0.0)), errors="coerce").fillna(0.0)
+    X["centro"] = df.get("centro", False).astype(int)
+    X["custo_dp"] = pd.to_numeric(df.get("custo", df.get("custo_dp", 0.0)), errors="coerce").fillna(0.0)
+    X["face_rho"] = pd.to_numeric(df.get("face_rho", 0.0), errors="coerce").fillna(0.0).abs()
+    X["ambiguo"] = df.get("ambiguo", False).astype(int)
+    X["enderecos_face"] = pd.to_numeric(df.get("enderecos_face", 1), errors="coerce").fillna(1).astype(int)
+    X["compartilhado"] = df.get("compartilhado", False).astype(int)
+
+    for m in ["raio", "raio+ordem", "vizinho", "anexo", "condominio"]:
+        X[f"metodo_{m}"] = (df.get("metodo", "") == m).astype(int)
+
+    for v in ["principal", "anexo", "condominio"]:
+        X[f"vinculo_{v}"] = (df.get("tipo_vinculo", "principal") == v).astype(int)
+
+    return X
+
+
+def aplicar_modelo_probabilidade(a: pd.DataFrame, modelo_path: str | Path | None = None) -> pd.DataFrame:
+    """Prevê a probabilidade da atribuição estar correta e atualiza revisar_face."""
+    if modelo_path is None:
+        modelo_path = Path("modelo_rooftop_prob.joblib")
+    p = Path(modelo_path)
+    if not p.exists():
+        a["prob_correto"] = np.nan
+        return a
+    try:
+        import joblib
+        model = joblib.load(p)
+        X = extrair_features_modelo(a)
+        probs = model.predict_proba(X)[:, 1]
+        a["prob_correto"] = np.round(probs, 4)
+        corte = float(CFG.get("corte_prob_revisar", 0.60))
+        m_prob = a["prob_correto"].notna()
+        a.loc[m_prob, "revisar_face"] = a.loc[m_prob, "revisar_face"] | (a.loc[m_prob, "prob_correto"] < corte)
+    except Exception:
+        a["prob_correto"] = np.nan
+    return a
+
+
+def vincular_anexos(a, blds):
+    """Identifica edificações B sem endereço no fundo do lote de A (Tarefa 3)."""
+    blds["tipo_vinculo"] = "principal"
+    blds["endereco_ref"] = ""
+    blds["bld_principal"] = blds["id"] if "id" in blds else blds["bld_idx"].astype(str)
+
+    geoms = blds.geometry.to_numpy()
+    tree = STRtree(geoms)
+
+    com_endereco = a[a["bld"] >= 0].drop_duplicates("bld")
+    if len(com_endereco) == 0:
+        return blds, pd.DataFrame()
+
+    blds_com_end = set(com_endereco["bld"].to_numpy())
+    blds_sem_end = [i for i in range(len(blds)) if i not in blds_com_end]
+    if not blds_sem_end:
+        return blds, pd.DataFrame()
+
+    # Agrupa pontos por quadra e face para checagem de proximidade da quadra
+    quadra_faces_pts: dict[str, dict[str, list]] = {}
+    for _, r_pts in a[a.geometry.notna()].iterrows():
+        qk = str(r_pts.get("quadra_key", ""))
+        fk = str(r_pts.get("face_key", ""))
+        if not qk or not fk:
+            continue
+        quadra_faces_pts.setdefault(qk, {}).setdefault(fk, []).append(r_pts.geometry)
+
+    info_A = {}
+    for _, row in com_endereco.iterrows():
+        bi = int(row["bld"])
+        tx, ty = row["tx"], row["ty"]
+        nx, ny = row["nx"], row["ny"]
+        if np.isnan(tx) or np.isnan(nx):
+            continue
+        t = np.array([tx, ty])
+        n_ = np.array([nx, ny])
+        cs = shapely.get_coordinates(shapely.boundary(geoms[bi]))
+        proj_t = cs @ t
+        proj_n = cs @ n_
+        info_A[bi] = {
+            "t": t, "n": n_, "face_key": row["face_key"], "quadra_key": row.get("quadra_key", ""),
+            "lo": proj_t.min(), "hi": proj_t.max(),
+            "prof_max": proj_n.max(), "prof_min": proj_n.min(),
+            "poly": geoms[bi], "addr_row": row,
+        }
+
+    anexos_encontrados = []
+    dist_max = CFG.get("anexo_dist_max", 20.0)
+    min_overlap = CFG.get("anexo_min_overlap", 0.5)
+
+    for bi_b in blds_sem_end:
+        poly_B = geoms[bi_b]
+        cen_B = shapely.centroid(poly_B)
+        cands_idx = tree.query(shapely.buffer(poly_B, dist_max), predicate="intersects")
+        cands_A = [ci for ci in cands_idx if ci in info_A and ci != bi_b]
+        if not cands_A:
+            continue
+
+        cs_B = shapely.get_coordinates(shapely.boundary(poly_B))
+        candidatos_validos = []
+
+        for bi_a in cands_A:
+            inf = info_A[bi_a]
+            t, n_ = inf["t"], inf["n"]
+            poly_A = inf["poly"]
+
+            # 3. Distância de no máximo 20 m
+            if shapely.distance(poly_A, poly_B) > dist_max:
+                continue
+
+            proj_t_B = cs_B @ t
+            lo_B, hi_B = proj_t_B.min(), proj_t_B.max()
+            larg_B = hi_B - lo_B
+            if larg_B <= 0.1:
+                continue
+
+            # 2. Projeção na tangente cobre pelo menos 50% de B dentro de [lo, hi] de A
+            overlap = max(0.0, min(inf["hi"], hi_B) - max(inf["lo"], lo_B))
+            if (overlap / larg_B) < min_overlap:
+                continue
+
+            # 1. B está do lado de dentro da face de A
+            proj_n_B = cs_B @ n_
+            prof_B_min = proj_n_B.min()
+            if prof_B_min <= inf["prof_min"]:
+                continue
+
+            # 3b. Sem outra edificação com endereço entre elas ao longo da normal
+            cen_A = shapely.centroid(poly_A)
+            coords_seg = [(shapely.get_x(cen_A), shapely.get_y(cen_A)), (shapely.get_x(cen_B), shapely.get_y(cen_B))]
+            raio_corredor = shapely.linestrings(coords_seg)
+            hits_corredor = tree.query(raio_corredor, predicate="intersects")
+            bloqueado = any(h in blds_com_end and h != bi_a and h != bi_b for h in hits_corredor)
+            if bloqueado:
+                continue
+
+            # 4. B está mais perto da face de A do que de qualquer outra face da mesma quadra
+            qk = inf["quadra_key"]
+            fk_A = inf["face_key"]
+            if qk in quadra_faces_pts and len(quadra_faces_pts[qk]) > 1:
+                pts_A = quadra_faces_pts[qk].get(fk_A, [])
+                if pts_A:
+                    dist_A = min(shapely.distance(cen_B, p) for p in pts_A)
+                    mais_perto_de_outra = False
+                    for fk_outra, pts_outra in quadra_faces_pts[qk].items():
+                        if fk_outra != fk_A and pts_outra:
+                            dist_outra = min(shapely.distance(cen_B, p) for p in pts_outra)
+                            if dist_outra < dist_A:
+                                mais_perto_de_outra = True
+                                break
+                    if mais_perto_de_outra:
+                        continue
+
+            candidatos_validos.append({
+                "bi_a": bi_a,
+                "overlap": overlap / larg_B,
+                "info": inf,
+            })
+
+        if not candidatos_validos:
+            continue
+
+        # Se houver mais de uma A possível, escolha a de maior sobreposição e marque "anexo_ambiguo"
+        candidatos_validos.sort(key=lambda c: c["overlap"], reverse=True)
+        vencedor = candidatos_validos[0]
+        bi_vencedor = vencedor["bi_a"]
+        inf_vencedor = vencedor["info"]
+        id_princ = blds.at[bi_vencedor, "id"] if "id" in blds else str(bi_vencedor)
+        id_anexo = blds.at[bi_b, "id"] if "id" in blds else str(bi_b)
+        motivo = "anexo_ambiguo" if len(candidatos_validos) > 1 else "anexo"
+
+        blds.at[bi_b, "tipo_vinculo"] = "anexo"
+        blds.at[bi_b, "endereco_ref"] = id_princ
+        blds.at[bi_b, "bld_principal"] = id_princ
+
+        # Atribui a B o mesmo endereço com tipo_vinculo = "anexo", endereco_ref = id de A e confiança "media"
+        row_ref = inf_vencedor["addr_row"]
+        nova_linha = {
+            "addr_key": f"{id_anexo}_anexo",
+            "endereco": row_ref.get("endereco", ""),
+            "cep": row_ref.get("cep", ""),
+            "especie": row_ref.get("especie", ""),
+            "unidades": 1,
+            "bld": bi_b,
+            "bld_id": id_anexo,
+            "tipo_vinculo": "anexo",
+            "endereco_ref": id_princ,
+            "confianca": "media",
+            "motivo_confianca": motivo,
+            "metodo": "anexo",
+            "geometry": shapely.point_on_surface(poly_B),
+            "face_key": inf_vencedor["face_key"],
+            "quadra_key": inf_vencedor["quadra_key"],
+            "compartilhado": False,
+            "mudou_bld": True,
+            "mudou_ponto": True,
+            "deslocamento_m": 0.0,
+            "revisar_face": False,
+            "condominio_sem_perimetro": False,
+        }
+        anexos_encontrados.append(nova_linha)
+
+    df_anexos = pd.DataFrame(anexos_encontrados)
+    if len(df_anexos):
+        a = pd.concat([a, df_anexos], ignore_index=True)
+
+    return a, blds, df_anexos
+
+
+def vincular_condominios(a, blds, perimetros_path: str | Path | None = None):
+    """Atribui blocos internos de condomínio via perímetros (Tarefa 4)."""
+    if "condominio_sem_perimetro" not in a.columns:
+        a["condominio_sem_perimetro"] = False
+
+    is_condo = a["candidato_condominio"].fillna(False) if "candidato_condominio" in a.columns else pd.Series(False, index=a.index)
+
+    if not perimetros_path or not Path(perimetros_path).exists():
+        a.loc[is_condo, "condominio_sem_perimetro"] = True
+        return a, blds, pd.DataFrame()
+
+    try:
+        perimetros = gpd.read_file(perimetros_path)
+        if perimetros.crs != blds.crs and blds.crs is not None:
+            perimetros = perimetros.to_crs(blds.crs)
+    except Exception:
+        a.loc[is_condo, "condominio_sem_perimetro"] = True
+        return a, blds, pd.DataFrame()
+
+    geoms = blds.geometry.to_numpy()
+    blds_com_end = set(a[a["bld"] >= 0]["bld"].to_numpy())
+    condo_atribuidos = []
+
+    for idx, row in a[is_condo].iterrows():
+        pt = row["geometry"] if row.get("geometry") is not None else shapely.points(row["x"], row["y"])
+        if pt is None or shapely.is_empty(pt):
+            continue
+
+        hits = perimetros[perimetros.contains(pt)]
+        if len(hits) == 0:
+            a.at[idx, "condominio_sem_perimetro"] = True
+            continue
+
+        a.at[idx, "condominio_sem_perimetro"] = False
+        poly_perim = hits.geometry.iloc[0]
+        id_portao = str(row.get("bld_id") or row.get("bld"))
+
+        for bi in range(len(blds)):
+            if bi in blds_com_end:
+                continue
+            poly_bld = geoms[bi]
+            if poly_perim.contains(poly_bld) or poly_perim.intersects(poly_bld):
+                blds_com_end.add(bi)
+                id_bld = blds.at[bi, "id"] if "id" in blds else str(bi)
+                blds.at[bi, "tipo_vinculo"] = "condominio"
+                blds.at[bi, "endereco_ref"] = id_portao
+
+                nova_linha = {
+                    "addr_key": f"{id_bld}_condo",
+                    "endereco": row["endereco"],
+                    "cep": row["cep"],
+                    "especie": row["especie"],
+                    "unidades": 1,
+                    "bld": bi,
+                    "bld_id": id_bld,
+                    "tipo_vinculo": "condominio",
+                    "endereco_ref": id_portao,
+                    "confianca": "media",
+                    "motivo_confianca": "condominio",
+                    "metodo": "condominio",
+                    "geometry": shapely.point_on_surface(poly_bld),
+                    "face_key": row["face_key"],
+                    "quadra_key": row.get("quadra_key", ""),
+                    "compartilhado": False,
+                    "mudou_bld": True,
+                    "mudou_ponto": True,
+                    "deslocamento_m": 0.0,
+                    "revisar_face": False,
+                    "condominio_sem_perimetro": False,
+                }
+                condo_atribuidos.append(nova_linha)
+
+    df_condo = pd.DataFrame(condo_atribuidos)
+    if len(df_condo):
+        a = pd.concat([a, df_condo], ignore_index=True)
+
+    return a, blds, df_condo
+
+
+# ---------------------------------------------------------------- modelo probabilístico (Tarefa 5)
+def extrair_features_modelo(a: pd.DataFrame) -> pd.DataFrame:
+    """Extrai matriz de features para treino/predição de prob_correto."""
+    feats = pd.DataFrame(index=a.index)
+    feats["share"] = a["share"].fillna(0.0).astype(float) if "share" in a.columns else 0.0
+    feats["dmin"] = a["dmin"].fillna(999.0).astype(float) if "dmin" in a.columns else 999.0
+    feats["acerto_raio_central"] = a["acerto_raio_central"].fillna(False).astype(int) if "acerto_raio_central" in a.columns else 0
+    feats["dp_custo"] = a["dp_custo"].fillna(0.0).astype(float) if "dp_custo" in a.columns else 0.0
+    feats["face_rho"] = a["face_rho"].fillna(0.0).astype(float) if "face_rho" in a.columns else 0.0
+    feats["ambiguo"] = a["ambiguo"].fillna(False).astype(int) if "ambiguo" in a.columns else 0
+    feats["n_enderecos_face"] = a["face_key"].map(a["face_key"].value_counts()).fillna(1).astype(float) if "face_key" in a.columns else 1.0
+    feats["compartilhado"] = a["compartilhado"].fillna(False).astype(int) if "compartilhado" in a.columns else 0
+    
+    # One-hot / dummies categóricos com colunas esperadas
+    metodos = ["raio", "fallback", "dp", "anexo", "condominio"]
+    metodo_series = a["metodo"].astype(str) if "metodo" in a.columns else pd.Series("", index=a.index)
+    for m in metodos:
+        feats[f"metodo_{m}"] = (metodo_series == m).astype(int)
+
+    tipos_vinculo = ["principal", "anexo", "condominio"]
+    vinculo_series = a["tipo_vinculo"].astype(str) if "tipo_vinculo" in a.columns else pd.Series("principal", index=a.index)
+    for tv in tipos_vinculo:
+        feats[f"tipo_vinculo_{tv}"] = (vinculo_series == tv).astype(int)
+
+    return feats
+
+
+def aplicar_modelo_probabilidade(a: pd.DataFrame, modelo_path: str | Path | None = None, corte: float | None = None) -> pd.DataFrame:
+    """Adiciona prob_correto e atualiza revisar_face se o modelo estiver disponível."""
+    if corte is None:
+        corte = CFG.get("corte_prob_revisar", 0.60)
+
+    if not modelo_path or not Path(modelo_path).exists():
+        a["prob_correto"] = np.nan
+        return a
+
+    try:
+        import joblib
+        modelo = joblib.load(modelo_path)
+        X = extrair_features_modelo(a)
+        if hasattr(modelo, "predict_proba"):
+            probs = modelo.predict_proba(X)[:, 1]
+        else:
+            probs = modelo.predict(X)
+        a["prob_correto"] = probs
+        # Atualiza corte de revisão: revisar se probabilidade for menor que o corte
+        revisar_antigo = a["revisar_face"].fillna(False) if "revisar_face" in a.columns else pd.Series(False, index=a.index)
+        a["revisar_face"] = revisar_antigo | (a["prob_correto"] < corte)
+    except Exception as err:
+        print(f"Aviso: Não foi possível aplicar modelo {modelo_path}: {err}")
+        a["prob_correto"] = np.nan
+
     return a
 
 
@@ -779,8 +1300,6 @@ def escrever_web_geojson(a, path):
         g = gpd.GeoDataFrame(m, geometry="geometry", crs=a.crs).to_crs(4326)
         feats = []
         for _, row in g.iterrows():
-            # A camada web carrega só o necessário para o mapa; o antes/depois
-            # completo fica no GPKG de debug e nos CSVs.
             props = {
                 "addr_key": row["addr_key"],
                 "endereco": row["endereco"],
@@ -791,6 +1310,8 @@ def escrever_web_geojson(a, path):
                 "bld_id": row.get("bld_id", ""),
                 "metodo": row["metodo"],
                 "confianca": row["confianca"],
+                "compartilhado": bool(row.get("compartilhado", False)),
+                "motivo_confianca": str(row.get("motivo_confianca") or ""),
                 "revisar_face": bool(row["revisar_face"]),
                 "mudou_bld": bool(row["mudou_bld"]) if pd.notna(row["mudou_bld"]) else False,
                 "mudou_ponto": bool(row["mudou_ponto"]) if pd.notna(row["mudou_ponto"]) else False,
@@ -823,6 +1344,8 @@ def escrever_web_poligonos(a, blds, path):
                 "n_enderecos": int(len(g)),
                 "n_unidades": int(g["unidades"].sum()),
                 "confianca": conf,
+                "compartilhado": bool(g["compartilhado"].any()) if "compartilhado" in g else False,
+                "motivos_confianca": " | ".join(sorted(set(g["motivo_confianca"].dropna().astype(str)))) if "motivo_confianca" in g else "",
                 "mudou": bool(g["mudou_bld"].fillna(False).any()
                               or g["mudou_ponto"].fillna(False).any()),
                 "revisar": bool(g["revisar_face"].fillna(False).any()),
@@ -830,7 +1353,12 @@ def escrever_web_poligonos(a, blds, path):
                 "enderecos": " | ".join(g["endereco"].astype(str).head(6)),
             })
         r = m.groupby("bld").apply(resumo, include_groups=False).reset_index()
-        g = blds[["bld_idx", "id", "geometry"]].merge(r, left_on="bld_idx", right_on="bld")
+        cols_bld = ["bld_idx", "id", "geometry"]
+        if "tipo_vinculo" in blds.columns:
+            cols_bld.append("tipo_vinculo")
+        if "bld_principal" in blds.columns:
+            cols_bld.append("bld_principal")
+        g = blds[cols_bld].merge(r, left_on="bld_idx", right_on="bld")
         g = gpd.GeoDataFrame(g, geometry="geometry", crs=blds.crs).to_crs(4326)
         # A camada web não precisa do detalhe de 1 m do Overture.
         g["geometry"] = g.geometry.simplify(0.00002, preserve_topology=True)
@@ -841,6 +1369,10 @@ def escrever_web_poligonos(a, blds, path):
                 "n_enderecos": int(row["n_enderecos"]),
                 "n_unidades": int(row["n_unidades"]),
                 "confianca": row["confianca"],
+                "tipo_vinculo": str(row.get("tipo_vinculo") or "principal"),
+                "bld_principal": str(row.get("bld_principal") or row["id"]),
+                "compartilhado": bool(row.get("compartilhado", False)),
+                "motivos_confianca": str(row.get("motivos_confianca", "")),
                 "mudou": bool(row["mudou"]),
                 "revisar": bool(row["revisar"]),
                 "metodos": row["metodos"],
@@ -860,7 +1392,15 @@ def escrever_web_poligonos(a, blds, path):
 
 # ---------------------------------------------------------------- pipeline
 def processar(cnefe_path, edif_path, saida, debug=False, debug_gpkg=None,
-              debug_csv_dir=None, web_geojson=None, web_poligonos=None):
+              debug_csv_dir=None, web_geojson=None, web_poligonos=None,
+              perimetros=None, modelo=None, params=None, corte_prob=None):
+    if params:
+        p_dict = json.loads(Path(params).read_text(encoding="utf-8")) if isinstance(params, (str, Path)) and Path(params).exists() else params
+        if isinstance(p_dict, dict):
+            CFG.update(p_dict)
+    if corte_prob is not None:
+        CFG["corte_prob_revisar"] = float(corte_prob)
+
     blds = carregar_edificacoes(edif_path)
     bbox = blds.to_crs(4326).total_bounds
     crs = blds.to_crs(4326).estimate_utm_crs()
@@ -888,21 +1428,37 @@ def processar(cnefe_path, edif_path, saida, debug=False, debug_gpkg=None,
         dbg.etapa("agregacao", enderecos_base=len(a), unidades=len(df))
 
     a = calcular_normais(a, crs=crs, debug=dbg)
-    a, hits = atribuir(a, blds, debug=dbg)
+    a, hits, donos = atribuir(a, blds, debug=dbg)
 
     antes = _snapshot(a)
-    a = refinar_por_ordem(a, blds, hits, debug=dbg)
+    a = refinar_por_ordem(a, blds, hits, donos=donos, debug=dbg)
+    a = avaliar_conflitos(a, blds)
+    a, blds, df_anexos = vincular_anexos(a, blds)
+    a, blds, df_condo = vincular_condominios(a, blds, perimetros_path=perimetros)
     a = checar_ordem(a)
+    a = aplicar_modelo_probabilidade(a, modelo_path=modelo, corte=corte_prob)
     depois = _snapshot(a)
     diff = comparar_antes_depois(antes, depois)
 
+    # Verificação obrigatória: nenhuma edificação pode ter endereços de mais de um face_key
+    # (exceto vínculos do tipo anexo ou condomínio criados especificamente)
+    principais = a[(a["bld"] >= 0) & (~a["tipo_vinculo"].isin(["anexo", "condominio"]))]
+    for bi, faces in principais.groupby("bld")["face_key"].unique().items():
+        assert len(faces) <= 1, f"Edificação {bi} tem endereços de múltiplas faces: {faces}"
+
     if dbg is not None:
         _registrar_debug_diff(dbg, antes, depois, diff, crs)
+        if len(df_anexos):
+            dbg.table("anexos", df_anexos)
+        if len(df_condo):
+            dbg.table("condominios", df_condo)
         resumo = resumir_edificacoes(a, blds)
         dbg.layer("edificacoes", resumo)
         dbg.etapa(
             "checagem_ordem",
             faces_revisar=int(a.loc[a["revisar_face"].fillna(False), "face_key"].nunique()),
+            anexos_identificados=len(df_anexos),
+            condominios_identificados=len(df_condo),
         )
         dbg.escrever()
         dbg.imprimir()
@@ -914,8 +1470,9 @@ def processar(cnefe_path, edif_path, saida, debug=False, debug_gpkg=None,
     a = gpd.GeoDataFrame(a, geometry="geometry", crs=blds.crs)
     a = a.set_geometry("geometry", crs=blds.crs)
     cols = ["addr_key", "endereco", "cep", "especie", "unidades", "bld", "bld_id", "bld_antes", "metodo",
-            "metodo_antes", "confianca", "confianca_antes", "mudou_bld", "mudou_ponto",
-            "deslocamento_m", "dp", "face_rho", "revisar_face", "geometry"]
+            "metodo_antes", "confianca", "confianca_antes", "compartilhado", "motivo_confianca",
+            "tipo_vinculo", "endereco_ref", "condominio_sem_perimetro", "prob_correto",
+            "mudou_bld", "mudou_ponto", "deslocamento_m", "dp", "face_rho", "revisar_face", "geometry"]
     cols = [c for c in cols if c in a.columns]
     saida = Path(saida)
     saida.parent.mkdir(parents=True, exist_ok=True)
@@ -953,6 +1510,14 @@ def _cli():
                    help="também grava os pontos finais em GeoJSON 4326 para o backend")
     p.add_argument("--web-poligonos", default=None,
                    help="também grava os polígonos dos prédios que receberam pontos")
+    p.add_argument("--perimetros", default=None,
+                   help="GeoPackage/GeoJSON opcional com perímetros de condomínios/lotes")
+    p.add_argument("--modelo", default=None,
+                   help="caminho do modelo scikit-learn (.joblib) treinado para prever acerto")
+    p.add_argument("--params", default=None,
+                   help="caminho de arquivo JSON com parâmetros calibrados para sobrescrever CFG")
+    p.add_argument("--corte-prob", type=float, default=None,
+                   help="corte de probabilidade para revisar (padrão: 0.60)")
     p.add_argument("--raio-max", type=float, default=None)
     p.add_argument("--profundidade", type=float, default=None)
     p.add_argument("--fallback-raio", type=float, default=None)
@@ -976,6 +1541,10 @@ def _cli():
         debug_csv_dir=args.debug_dir,
         web_geojson=args.web_geojson,
         web_poligonos=args.web_poligonos,
+        perimetros=args.perimetros,
+        modelo=args.modelo,
+        params=args.params,
+        corte_prob=args.corte_prob,
     )
 
 
