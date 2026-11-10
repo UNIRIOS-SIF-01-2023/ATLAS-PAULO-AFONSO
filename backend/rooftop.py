@@ -86,6 +86,8 @@ def map_meta() -> dict:
     """Extent, contagens e estado dos arquivos locais; não consulta a rede."""
     doc = geojson()
     features = doc.get("features") or []
+    poly_doc = poligonos()
+    poly_features = poly_doc.get("features") or []
 
     def conta(pred) -> int:
         return sum(1 for f in features if pred(f.get("properties") or {}))
@@ -105,18 +107,31 @@ def map_meta() -> dict:
         for f in features
         if f.get("properties", {}).get("bld_id")
     }
+    total_addr = len(features)
+    high_count = conta(lambda p: p.get("confianca") == "alta")
+    medium_count = conta(lambda p: p.get("confianca") == "media")
+    low_count = conta(lambda p: p.get("confianca") == "baixa")
+    poly_total = len(poly_features) or len(bld_ids)
+    coverage_pct = round((len(bld_ids) / max(1, poly_total)) * 100, 1)
+
     return {
         "version": version,
         "bounds": _bounds(doc),
         "source": "CNEFE rooftop (local)",
         "file": str(path),
         "missing": not features,
-        "address_count": len(features),
+        "address_count": total_addr,
         "building_count": len(bld_ids),
+        "coverage_pct": coverage_pct,
         "changed_count": conta(lambda p: bool(p.get("mudou_bld") or p.get("mudou_ponto"))),
-        "high_count": conta(lambda p: p.get("confianca") == "alta"),
-        "medium_count": conta(lambda p: p.get("confianca") == "media"),
-        "low_count": conta(lambda p: p.get("confianca") == "baixa"),
+        "high_count": high_count,
+        "medium_count": medium_count,
+        "low_count": low_count,
+        "high_pct": round((high_count / max(1, total_addr)) * 100, 1),
+        "medium_pct": round((medium_count / max(1, total_addr)) * 100, 1),
+        "low_pct": round((low_count / max(1, total_addr)) * 100, 1),
+        "compartilhado_count": conta(lambda p: bool(p.get("compartilhado"))),
+        "anexo_count": sum(1 for f in poly_features if (f.get("properties") or {}).get("tipo_vinculo") == "anexo"),
         "revise_face_count": conta(lambda p: bool(p.get("revisar_face"))),
         "polygon_count": len(bld_ids),
         "polygon_file": str(polys_path),

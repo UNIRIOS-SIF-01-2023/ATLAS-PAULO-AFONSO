@@ -160,18 +160,21 @@ def map_meta(usuario: dict = Depends(auth.get_current_user)):
     return {"version": version, "bounds": overview["bounds"], "levels": len(LEVEL_CELL_DEG)}
 
 
+@app.get("/api/rooftop/meta")
 @app.get("/api/rooftop/vila-nobre/meta")
 def rooftop_vila_nobre_meta(usuario: dict = Depends(auth.get_current_user)):
     """Extent e contagens da camada local do CNEFE rooftop; sem API externa."""
     return rooftop.map_meta()
 
 
+@app.get("/api/rooftop")
 @app.get("/api/rooftop/vila-nobre")
 def rooftop_vila_nobre(usuario: dict = Depends(auth.get_current_user)):
     """Pontos rooftop gerados localmente pelo cnefe_rooftop.py."""
     return JSONResponse(content=rooftop.geojson())
 
 
+@app.get("/api/rooftop/poligonos")
 @app.get("/api/rooftop/vila-nobre/poligonos")
 def rooftop_vila_nobre_poligonos(usuario: dict = Depends(auth.get_current_user)):
     """Prédios que receberam pontos, com o resumo do cruzamento."""

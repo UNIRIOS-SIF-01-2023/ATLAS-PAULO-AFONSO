@@ -6,6 +6,7 @@ import json
 import math
 import argparse
 import os
+import re
 from collections import Counter
 
 import pymysql
@@ -15,6 +16,7 @@ from shapely.ops import transform
 from shapely import strtree
 
 DATA_DIR = "data/raw"
+DEFAULT_ROOFTOP_GEOJSON = os.environ.get("ROOFTOP_GEOJSON", "data/processed/pontos_rooftop.geojson")
 OVERTURE_FILES = [
     f"{DATA_DIR}/overture/overture-2026-08-19.0-building--38.236,-9.410,-38.212,-9.395.geojson",
     f"{DATA_DIR}/overture/overture-2026-08-19.0-building-municipio.geojson",
@@ -210,6 +212,78 @@ def match_points(polys, points, q_indices=None):
     return point_to_poly
 
 
+def cnefe_address_key(props: dict) -> tuple[str, str]:
+    """Retorna (id_unico, chave_composta) para correspondência com o rooftop."""
+    uid = str(props.get("COD_UNICO_ENDERECO") or "").strip()
+    ln = str(props.get("LOGRAD_NUM") or "").strip()
+    num_str = str(props.get("NUM_ENDERECO") or "").strip()
+    if not num_str or num_str in ("nan", "None"):
+        m = re.search(r",\s*([0-9]+)\s*$", ln)
+        num_str = m.group(1) if m else ""
+    try:
+        num_i = int(float(num_str)) if num_str else 0
+    except (ValueError, TypeError):
+        num_i = 0
+    mod = str(props.get("DSC_MODIFICADOR") or "").strip()
+    sn = (num_i == 0) or ("SN" in mod.upper())
+    if sn:
+        return uid, uid
+    logr = str(props.get("NOM_SEGLOGR") or "").strip()
+    if not logr or logr in ("nan", "None"):
+        logr = ln.rsplit(",", 1)[0].strip() if "," in ln else ln
+    quadra_key = f"{props.get('COD_SETOR')}_{props.get('NUM_QUADRA')}"
+    face_key = f"{quadra_key}_{props.get('NUM_FACE')}"
+    return uid, f"{face_key}|{logr}|{num_i}|{mod}"
+
+
+def load_rooftop_matches(path: str = DEFAULT_ROOFTOP_GEOJSON) -> dict[str, dict]:
+    """Carrega correspondências do cnefe_rooftop (addr_key -> propriedades)."""
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            fc = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    matches = {}
+    for feat in fc.get("features", []):
+        props = feat.get("properties") or {}
+        key = str(props.get("addr_key") or feat.get("id") or "")
+        if key:
+            matches[key] = props
+    return matches
+
+
+def relate_points_via_rooftop(building_features, osm_features, qg_features, rooftop_matches):
+    """Associa endereços a edificações usando o matching refinado do rooftop."""
+    ov_id_to_idx = {b.get("id"): bi for bi, b in enumerate(building_features) if b.get("id")}
+    osm_id_to_idx = {}
+    for oi, b in enumerate(osm_features):
+        otags = b.get("properties") or {}
+        oid = str(otags.get("osm_id", oi)).replace("/", "-")
+        osm_id_to_idx[oid] = oi
+        osm_id_to_idx[f"osm-{oid}"] = oi
+
+    point_to_building = {}
+    osm_match = {}
+
+    for qi, qf in enumerate(qg_features):
+        qp = qf.get("properties") or {}
+        uid, comp_key = cnefe_address_key(qp)
+        match = rooftop_matches.get(uid) or rooftop_matches.get(comp_key)
+        if not match:
+            continue
+        bld_id = match.get("bld_id")
+        if not bld_id:
+            continue
+        if bld_id in ov_id_to_idx:
+            point_to_building[qi] = ov_id_to_idx[bld_id]
+        elif bld_id in osm_id_to_idx:
+            osm_match[qi] = osm_id_to_idx[bld_id]
+
+    return point_to_building, osm_match
+
+
 def relate_points_to_buildings(buildings, points):
     polys = []
     for b in buildings:
@@ -243,14 +317,13 @@ def main(if_empty=False):
     qg_features = load_qg_points()
     print(f"  {len(qg_features)} pontos de endereço")
 
-    print("Relacionando endereços x prédios (espacialmente)...")
-    building_to_points, polys = relate_points_to_buildings(building_features, qg_features)
-    point_to_building = {
-        qi: bi for bi, qis in building_to_points.items() for qi in qis
-    }
-    print(f"  {len(point_to_building)} endereços dentro de prédios")
+    polys = []
+    for b in building_features:
+        g = shape(b["geometry"])
+        if not g.is_valid:
+            g = g.buffer(0)
+        polys.append(g)
 
-    print("2ª fonte (OSM) para os endereços restantes...")
     osm_features = load_osm_buildings()
     osm_polys = []
     for b in osm_features:
@@ -258,12 +331,35 @@ def main(if_empty=False):
         if not g.is_valid:
             g = g.buffer(0)
         osm_polys.append(g)
-    unmatched = [qi for qi in range(len(qg_features))
-                 if qi not in point_to_building]
-    osm_match = (match_points(osm_polys, qg_features, unmatched)
-                 if osm_polys else {})
-    print(f"  OSM: {len(osm_features)} polígonos, "
-          f"{len(osm_match)} endereços adotados")
+
+    print("Carregando matching CNEFE rooftop...")
+    rooftop_matches = load_rooftop_matches()
+    if rooftop_matches:
+        print(f"  {len(rooftop_matches)} correspondências rooftop carregadas")
+        point_to_building, osm_match = relate_points_via_rooftop(
+            building_features, osm_features, qg_features, rooftop_matches
+        )
+        print(f"  Rooftop: {len(point_to_building)} endereços em Overture, {len(osm_match)} em OSM")
+        # Fallback geométrico apenas para endereços residuais não cobertos pelo rooftop
+        unmatched = [qi for qi in range(len(qg_features))
+                     if qi not in point_to_building and qi not in osm_match]
+        if unmatched:
+            extra_ov = match_points(polys, qg_features, unmatched)
+            point_to_building.update(extra_ov)
+            unmatched_osm = [qi for qi in unmatched if qi not in point_to_building]
+            if unmatched_osm and osm_polys:
+                extra_osm = match_points(osm_polys, qg_features, unmatched_osm)
+                osm_match.update(extra_osm)
+    else:
+        print("  (Aviso: rooftop não encontrado; usando matching geométrico)")
+        point_to_building = match_points(polys, qg_features)
+        unmatched = [qi for qi in range(len(qg_features)) if qi not in point_to_building]
+        osm_match = match_points(osm_polys, qg_features, unmatched) if osm_polys else {}
+
+    building_to_points = {}
+    for qi, bi in point_to_building.items():
+        building_to_points.setdefault(bi, []).append(qi)
+    print(f"  Total de {len(point_to_building)} endereços em prédios Overture e {len(osm_match)} em OSM")
 
     print("Gravando no MySQL...")
     conn = connect_db()

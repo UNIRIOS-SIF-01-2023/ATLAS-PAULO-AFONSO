@@ -92,17 +92,18 @@ export function addRooftopLayer(map: MapLibreMap, apiUrl: string, beforeId?: str
     id: ROOFTOP_LAYER,
     type: 'circle',
     source: ROOFTOP_SOURCE,
+    minzoom: 14,
     paint: {
-      'circle-radius': ['case', ['==', ['get', 'confianca'], 'alta'], 6.5, ['==', ['get', 'confianca'], 'media'], 5.5, 4.5],
-      'circle-color': [
-        'case',
-        ['any', ['==', ['get', 'mudou_bld'], true], ['==', ['get', 'mudou_ponto'], true]],
-        theme === 'light' ? '#ea580c' : '#fb923c',
-        confiancaColor(theme),
+      'circle-radius': [
+        'interpolate', ['linear'], ['zoom'],
+        14, 2.5,
+        16, 3.8,
+        18, 5.2,
       ],
-      'circle-stroke-width': 1.2,
+      'circle-color': confiancaColor(theme),
+      'circle-stroke-width': 0.8,
       'circle-stroke-color': theme === 'light' ? '#ffffff' : '#0f172a',
-      'circle-opacity': 0.95,
+      'circle-opacity': 0.88,
     },
   }, beforeId);
   map.addLayer({
@@ -147,10 +148,13 @@ export function applyRooftopFilters(map: MapLibreMap, options: RooftopOptions) {
     options.onlyChanged ? ['==', ['get', 'mudou'], true] : undefined,
   );
 
+  const isFinal = options.viewMode === 'final';
+  const pointsVisible = !isFinal && options.showPoints;
+
   for (const layer of [ROOFTOP_LAYER, ROOFTOP_LABEL_LAYER]) {
     if (!map.getLayer(layer)) continue;
     map.setFilter(layer, filtroPontos);
-    map.setLayoutProperty(layer, 'visibility', options.showPoints ? 'visible' : 'none');
+    map.setLayoutProperty(layer, 'visibility', pointsVisible ? 'visible' : 'none');
   }
   for (const layer of [ROOFTOP_POLYGON_LAYER, ROOFTOP_POLYGON_LINE_LAYER]) {
     if (!map.getLayer(layer)) continue;
