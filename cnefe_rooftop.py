@@ -1465,8 +1465,10 @@ def processar(cnefe_path, edif_path, saida, debug=False, debug_gpkg=None,
         dbg.imprimir()
 
     # O resultado final carrega o antes/depois de cada endereço.
-    extras = diff[["addr_key", "bld_antes", "bld_depois", "metodo_antes",
-                   "confianca_antes", "mudou_bld", "mudou_ponto", "deslocamento_m"]]
+    colunas_extras = ["bld_antes", "bld_depois", "metodo_antes",
+                      "confianca_antes", "mudou_bld", "mudou_ponto", "deslocamento_m"]
+    a = a.drop(columns=[c for c in colunas_extras if c in a.columns])
+    extras = diff[["addr_key"] + colunas_extras]
     a = a.merge(extras, on="addr_key", how="left")
     a = gpd.GeoDataFrame(a, geometry="geometry", crs=blds.crs)
     a = a.set_geometry("geometry", crs=blds.crs)
