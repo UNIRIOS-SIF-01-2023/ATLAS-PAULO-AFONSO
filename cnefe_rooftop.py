@@ -1210,7 +1210,8 @@ def aplicar_modelo_probabilidade(a: pd.DataFrame, modelo_path: str | Path | None
 # ---------------------------------------------------------------- checagem de ordem
 def checar_ordem(a):
     """Numeração deve crescer ao longo da face; faces fora disso vão para revisão."""
-    m = (a["bld"] >= 0) & ~a["sn"] & a["tx"].notna() & a.geometry.notna()
+    sn_mask = a["sn"].fillna(False).astype(bool) if "sn" in a.columns else pd.Series(False, index=a.index)
+    m = (a["bld"] >= 0) & ~sn_mask & a["tx"].notna() & a.geometry.notna()
     s = a[m].copy()
     s["pos"] = s.geometry.x * s["tx"] + s.geometry.y * s["ty"]
     rho = s.groupby("face_key").apply(
