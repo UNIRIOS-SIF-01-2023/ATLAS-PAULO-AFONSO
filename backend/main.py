@@ -169,16 +169,58 @@ def rooftop_vila_nobre_meta(usuario: dict = Depends(auth.get_current_user)):
 
 @app.get("/api/rooftop")
 @app.get("/api/rooftop/vila-nobre")
-def rooftop_vila_nobre(usuario: dict = Depends(auth.get_current_user)):
-    """Pontos rooftop gerados localmente pelo cnefe_rooftop.py."""
-    return JSONResponse(content=rooftop.geojson())
+def rooftop_vila_nobre(
+    bbox: str | None = Query(
+        default=None,
+        description="Área visível: minLng,minLat,maxLng,maxLat",
+    ),
+    usuario: dict = Depends(auth.get_current_user),
+):
+    """Pontos rooftop gerados localmente pelo cnefe_rooftop.py.
+
+    Com `bbox`, só os pontos da área (o modo debug carrega por viewport).
+    """
+    try:
+        return JSONResponse(content=rooftop.geojson(bbox))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="bbox inválido")
+
+
+@app.get("/api/rooftop/cnefe")
+def rooftop_cnefe_original(
+    bbox: str | None = Query(
+        default=None,
+        description="Área visível: minLng,minLat,maxLng,maxLat",
+    ),
+    usuario: dict = Depends(auth.get_current_user),
+):
+    """Endereços ORIGINAIS do CNEFE (antes do rooftop), para comparação.
+
+    Com `bbox`, só os endereços da área pedida.
+    """
+    try:
+        return JSONResponse(content=rooftop.cnefe_geojson(bbox))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="bbox inválido")
 
 
 @app.get("/api/rooftop/poligonos")
 @app.get("/api/rooftop/vila-nobre/poligonos")
-def rooftop_vila_nobre_poligonos(usuario: dict = Depends(auth.get_current_user)):
-    """Prédios que receberam pontos, com o resumo do cruzamento."""
-    return JSONResponse(content=rooftop.poligonos())
+def rooftop_vila_nobre_poligonos(
+    bbox: str | None = Query(
+        default=None,
+        description="Área visível: minLng,minLat,maxLng,maxLat",
+    ),
+    usuario: dict = Depends(auth.get_current_user),
+):
+    """Prédios que receberam pontos, com o resumo do cruzamento.
+
+    Com `bbox`, só os polígonos da área pedida.
+    """
+    try:
+        return JSONResponse(content=rooftop.poligonos(bbox))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="bbox inválido")
 
 
 @app.get("/api/map/overview")

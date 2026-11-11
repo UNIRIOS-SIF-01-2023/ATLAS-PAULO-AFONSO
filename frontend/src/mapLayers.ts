@@ -1,4 +1,4 @@
-import type { ExpressionSpecification, Map as MapLibreMap } from 'maplibre-gl';
+import type { ExpressionSpecification, GeoJSONSource, Map as MapLibreMap } from 'maplibre-gl';
 import {
   ALTURA_PADRAO_POR_TIPO,
   ALTURA_PAVIMENTO_M,
@@ -51,18 +51,28 @@ export const ROOFTOP_POLYGON_LAYER = 'rooftop-polygon-fill';
 export const ROOFTOP_POLYGON_LINE_LAYER = 'rooftop-polygon-line';
 export const ROOFTOP_CLICKABLE_LAYERS = [ROOFTOP_LAYER, ROOFTOP_POLYGON_LAYER];
 
+export const CNEFE_SOURCE = 'cnefe-original';
+export const CNEFE_LAYER = 'cnefe-original-points';
+
 const confiancaColor = (theme: Theme): any => ['match', ['get', 'confianca'],
   'alta', corDaConfianca('alta', theme),
   'media', corDaConfianca('media', theme),
   'baixa', corDaConfianca('baixa', theme),
   corDaConfianca('nenhuma', theme)];
 
-/** Camada local do CNEFE rooftop (sem API externa), para conferência antes/depois. */
-export function addRooftopLayer(map: MapLibreMap, apiUrl: string, beforeId?: string, theme: Theme = 'dark') {
+/** Camada local do CNEFE rooftop (sem API externa), para conferência antes/depois.
+ *
+ * Com `dynamic`, as fontes nascem vazias e o App preenche por viewport
+ * (`setRooftopData`): o modo debug carrega só a área visível, não os 38MB.
+ */
+export function addRooftopLayer(map: MapLibreMap, apiUrl: string, beforeId?: string, theme: Theme = 'dark', opts: { dynamic?: boolean } = {}) {
+  const fonte = (url: string): any => (opts.dynamic
+    ? { type: 'FeatureCollection', features: [] }
+    : url);
   // Polígonos primeiro: o preenchimento do prédio fica abaixo dos pontos.
   map.addSource(ROOFTOP_POLYGON_SOURCE, {
     type: 'geojson',
-    data: `${apiUrl}/api/rooftop/vila-nobre/poligonos`,
+    data: fonte(`${apiUrl}/api/rooftop/vila-nobre/poligonos`),
   });
   map.addLayer({
     id: ROOFTOP_POLYGON_LAYER,
@@ -86,7 +96,7 @@ export function addRooftopLayer(map: MapLibreMap, apiUrl: string, beforeId?: str
 
   map.addSource(ROOFTOP_SOURCE, {
     type: 'geojson',
-    data: `${apiUrl}/api/rooftop/vila-nobre`,
+    data: fonte(`${apiUrl}/api/rooftop/vila-nobre`),
   });
   map.addLayer({
     id: ROOFTOP_LAYER,
@@ -124,6 +134,15 @@ export function addRooftopLayer(map: MapLibreMap, apiUrl: string, beforeId?: str
       'text-halo-width': 1.5,
     },
   }, beforeId);
+}
+
+/** Preenche as fontes dinâmicas com a área visível carregada do backend.
+ * `pontos` nulo mantém o que já está lá (abaixo do zoom 14 os pontos nem desenham). */
+export function setRooftopData(map: MapLibreMap, pontos: unknown, poligonos: unknown) {
+  const fontePontos = map.getSource(ROOFTOP_SOURCE) as GeoJSONSource | undefined;
+  if (fontePontos && pontos) fontePontos.setData(pontos as any);
+  const fontePoligonos = map.getSource(ROOFTOP_POLYGON_SOURCE) as GeoJSONSource | undefined;
+  if (fontePoligonos && poligonos) fontePoligonos.setData(poligonos as any);
 }
 
 function combinarFiltros(a: any, b: any): any {
@@ -170,6 +189,38 @@ export function removeRooftopLayer(map: MapLibreMap) {
   for (const source of [ROOFTOP_SOURCE, ROOFTOP_POLYGON_SOURCE]) {
     if (map.getSource(source)) map.removeSource(source);
   }
+}
+
+/** Camada comparativa: endereços ORIGINAIS do CNEFE (antes do rooftop).
+ * Círculos vazados azuis, desenhados POR CIMA da camada rooftop — quando o
+ * resultado final cai no endereço original, os dois aparecem concêntricos. */
+export function addCnefeLayer(map: MapLibreMap, beforeId?: string, theme: Theme = 'dark') {
+  map.addSource(CNEFE_SOURCE, {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+  });
+  map.addLayer({
+    id: CNEFE_LAYER,
+    type: 'circle',
+    source: CNEFE_SOURCE,
+    minzoom: 14,
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 14, 3.2, 16, 5.0, 18, 7.0],
+      'circle-color': 'transparent',
+      'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 14, 1.2, 16, 1.6, 18, 2],
+      'circle-stroke-color': theme === 'light' ? '#0e7490' : '#22d3ee',
+    },
+  }, beforeId);
+}
+
+export function setCnefeData(map: MapLibreMap, pontos: unknown) {
+  const fonte = map.getSource(CNEFE_SOURCE) as GeoJSONSource | undefined;
+  if (fonte && pontos) fonte.setData(pontos as any);
+}
+
+export function removeCnefeLayer(map: MapLibreMap) {
+  if (map.getLayer(CNEFE_LAYER)) map.removeLayer(CNEFE_LAYER);
+  if (map.getSource(CNEFE_SOURCE)) map.removeSource(CNEFE_SOURCE);
 }
 
 export function colorByTipo(tipo: unknown, theme: Theme = 'dark'): ExpressionSpecification {

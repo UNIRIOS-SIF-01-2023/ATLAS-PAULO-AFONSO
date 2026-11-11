@@ -5,6 +5,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { alturaDoPredio, FONTE_PONTO, TIPOS_ORDEM, type Theme } from './constants';
 import {
   addDataLayers,
+  addCnefeLayer,
   addRooftopLayer,
   addSelectionLayers,
   applyDataFilters,
@@ -17,13 +18,16 @@ import {
   OVERVIEW_LAYERS,
   overviewId,
   removeDataLayers,
+  removeCnefeLayer,
   removeRooftopLayer,
   ROOFTOP_CLICKABLE_LAYERS,
   ROOFTOP_POLYGON_LAYER,
   setAllBuildings3d,
+  setCnefeData,
+  setRooftopData,
   styleBasemap,
 } from './mapLayers';
-import { countFootprints, countOverviewCells, legendSource, OVERVIEW_LEVELS, type MapMeta } from './mapTiles';
+import { countFootprints, countOverviewCells, legendSource, OVERVIEW_LEVELS, type Bounds, type MapMeta } from './mapTiles';
 import { BuildingCard, type BuildingProps } from './components/BuildingCard';
 import { AuthBox, AuthScreen, type AuthUser } from './components/AuthBox';
 import { authHeaders, guardarSessao, lerSessao, limparSessao } from './session';
@@ -165,6 +169,8 @@ export default function App() {
   const [showReport, setShowReport] = useState(false);
   const [showRooftop, setShowRooftop] = useState(ROOFTOP_ONLY);
   const [rooftopOptions, setRooftopOptions] = useState<RooftopOptions>(defaultRooftopOptions);
+  // Comparação no modo debug: endereços ORIGINAIS do CNEFE por cima do rooftop.
+  const [showCnefe, setShowCnefe] = useState(false);
   const [rooftopMeta, setRooftopMeta] = useState<MapMeta | null>(null);
   const [rooftopSelection, setRooftopSelection] = useState<RooftopSelection | null>(null);
   const rooftopOptionsRef = useRef(rooftopOptions);
@@ -267,6 +273,10 @@ export default function App() {
         url.startsWith(API_URL) ? { url, headers: { ...authHeaders() } } : { url },
     });
     mapRef.current = map;
+    // No modo debug a conferência sempre começa no centro da cidade, bem
+    // próxima e inclinada: aí os primeiros polígonos da área carregam na
+    // hora. O hash compartilhado não vale aqui (era ele que abria de cima).
+    if (ROOFTOP_ONLY) map.jumpTo({ center: CENTRO, zoom: ZOOM_INICIAL, pitch: PITCH_3D, bearing: 0 });
     // Só em desenvolvimento: inspecionar o mapa pelo console do navegador.
     if (import.meta.env.DEV) (window as unknown as { __atlasMap: MapLibreMap }).__atlasMap = map;
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric', maxWidth: 96 }), 'bottom-right');
@@ -355,7 +365,7 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     const controller = new AbortController();
-    fetchJson(`${API_URL}${ROOFTOP_ONLY ? '/api/rooftop/vila-nobre/meta' : '/api/map/meta'}`, controller.signal)
+    fetchJson(`${API_URL}/api/map/meta`, controller.signal)
       .then((data: MapMeta) => setMeta(data))
       .catch(() => {
         if (!controller.signal.aborted) notify(`Servidor de dados fora do ar (${API_URL}).`, 'error');
@@ -364,7 +374,7 @@ export default function App() {
   }, [notify, user]);
 
   useEffect(() => {
-    if (!user || ROOFTOP_ONLY || !showRooftop) return;
+    if (!user || (!ROOFTOP_ONLY && !showRooftop)) return;
     const controller = new AbortController();
     fetchJson(`${API_URL}/api/rooftop/vila-nobre/meta`, controller.signal)
       .then((data: MapMeta) => setRooftopMeta(data))
@@ -377,16 +387,9 @@ export default function App() {
   useEffect(() => {
     const map = readyMap;
     if (!map || map !== mapRef.current || !meta) return;
-    if (ROOFTOP_ONLY) {
-      addRooftopLayer(map, API_URL, labelLayerRef.current, theme);
-      applyRooftopFilters(map, rooftopOptionsRef.current);
-      if (meta.bounds) {
-        const [west, south, east, north] = meta.bounds;
-        map.fitBounds([[west, south], [east, north]], { padding: panelPadding(48), pitch: 0, bearing: 0 });
-      }
-    } else {
-      addDataLayers(map, meta, API_URL, labelLayerRef.current, theme);
-    }
+    // Os prédios do Atlas (grades, pontos, polígonos e o 3D) ficam por baixo
+    // também no modo debug: é o contexto que dá escala à conferência.
+    addDataLayers(map, meta, API_URL, labelLayerRef.current, theme);
     setDataMap(map);
     // Cursor de mão sobre o que dá para clicar.
     const pointer = () => { map.getCanvas().style.cursor = 'pointer'; };
@@ -401,18 +404,18 @@ export default function App() {
         map.off('mouseenter', layer, pointer);
         map.off('mouseleave', layer, reset);
       }
-      if (mapRef.current === map) {
-        if (ROOFTOP_ONLY) removeRooftopLayer(map);
-        else removeDataLayers(map);
-      }
+      if (mapRef.current === map) removeDataLayers(map);
     };
   }, [readyMap, meta, styleRevision, theme]);
 
-  // Camada rooftop opcional sobre os dados do Atlas.
+  // Camada rooftop opcional sobre os dados do Atlas. No modo debug ela é o
+  // assunto da tela e carrega por viewport: só a área visível a cada parada
+  // (o arquivo inteiro são 38MB, e a cidade inteira não cabe na tela).
   useEffect(() => {
     const map = dataMap;
-    if (!map || map !== mapRef.current || ROOFTOP_ONLY || !showRooftop) return;
-    addRooftopLayer(map, API_URL, labelLayerRef.current, theme);
+    if (!map || map !== mapRef.current || (!ROOFTOP_ONLY && !showRooftop)) return;
+    const dinamico = ROOFTOP_ONLY;
+    addRooftopLayer(map, API_URL, labelLayerRef.current, theme, { dynamic: dinamico });
     applyRooftopFilters(map, rooftopOptionsRef.current);
     const pointer = () => { map.getCanvas().style.cursor = 'pointer'; };
     const reset = () => { map.getCanvas().style.cursor = ''; };
@@ -420,14 +423,107 @@ export default function App() {
       map.on('mouseenter', layer, pointer);
       map.on('mouseleave', layer, reset);
     }
+
+    let timer: number | undefined;
+    let pedido = 0;
+    let ultimaCaixa: Bounds | null = null;
+    let ultimoComPontos = false;
+    // A vista (com margem) já está dentro da última caixa pedida?
+    const cobre = (vista: Bounds, caixa: Bounds) =>
+      vista[0] >= caixa[0] && vista[1] >= caixa[1] && vista[2] <= caixa[2] && vista[3] <= caixa[3];
+    const carregarVisao = () => {
+      const b = map.getBounds();
+      const sw = b.getSouthWest();
+      const ne = b.getNorthEast();
+      const dx = (ne.lng - sw.lng) * 0.5;
+      const dy = (ne.lat - sw.lat) * 0.5;
+      const vista: Bounds = [sw.lng - dx, sw.lat - dy, ne.lng + dx, ne.lat + dy];
+      // Os pontos só desenham a partir do zoom 14; não adianta pedi-los antes.
+      const comPontos = map.getZoom() >= 13.5;
+      if (ultimaCaixa && cobre(vista, ultimaCaixa) && (!comPontos || ultimoComPontos)) return;
+      const meu = ++pedido;
+      Promise.all([
+        comPontos ? fetchJson(`${API_URL}/api/rooftop/vila-nobre?bbox=${vista.join(',')}`) : null,
+        fetchJson(`${API_URL}/api/rooftop/vila-nobre/poligonos?bbox=${vista.join(',')}`),
+      ]).then(([pontos, poligonos]) => {
+        if (meu !== pedido || mapRef.current !== map) return;
+        ultimaCaixa = vista;
+        ultimoComPontos = comPontos;
+        setRooftopData(map, pontos, poligonos);
+      }).catch(() => {
+        if (meu === pedido) notify('Não foi possível carregar a área do rooftop.', 'error');
+      });
+    };
+    // Paradas rápidas de câmera não disparam pedidos em cascata.
+    const agendar = () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        timer = undefined;
+        carregarVisao();
+      }, 250);
+    };
+    if (dinamico) {
+      carregarVisao(); // o primeiro quadro já traz os prédios da área central
+      map.on('moveend', agendar);
+    }
     return () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+      pedido += 1; // respostas em voo não escrevem no mapa novo
+      map.off('moveend', agendar);
       for (const layer of ROOFTOP_CLICKABLE_LAYERS) {
         map.off('mouseenter', layer, pointer);
         map.off('mouseleave', layer, reset);
       }
       if (mapRef.current === map) removeRooftopLayer(map);
     };
-  }, [dataMap, showRooftop, styleRevision, theme]);
+  }, [dataMap, showRooftop, styleRevision, theme, notify]);
+
+  // Camada comparativa do CNEFE original no modo debug: ciclo próprio de
+  // busca por viewport, para o toggle não derrubar os dados do rooftop.
+  useEffect(() => {
+    const map = dataMap;
+    if (!map || map !== mapRef.current || !ROOFTOP_ONLY || !showCnefe) return;
+    addCnefeLayer(map, undefined, theme);
+    let timer: number | undefined;
+    let pedido = 0;
+    let ultimaCaixa: Bounds | null = null;
+    const cobre = (vista: Bounds, caixa: Bounds) =>
+      vista[0] >= caixa[0] && vista[1] >= caixa[1] && vista[2] <= caixa[2] && vista[3] <= caixa[3];
+    const carregarVisao = () => {
+      const b = map.getBounds();
+      const sw = b.getSouthWest();
+      const ne = b.getNorthEast();
+      const dx = (ne.lng - sw.lng) * 0.5;
+      const dy = (ne.lat - sw.lat) * 0.5;
+      const vista: Bounds = [sw.lng - dx, sw.lat - dy, ne.lng + dx, ne.lat + dy];
+      if (ultimaCaixa && cobre(vista, ultimaCaixa)) return;
+      const meu = ++pedido;
+      fetchJson(`${API_URL}/api/rooftop/cnefe?bbox=${vista.join(',')}`)
+        .then((pontos) => {
+          if (meu !== pedido || mapRef.current !== map) return;
+          ultimaCaixa = vista;
+          setCnefeData(map, pontos);
+        })
+        .catch(() => {
+          if (meu === pedido) notify('Não foi possível carregar o CNEFE original.', 'error');
+        });
+    };
+    const agendar = () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        timer = undefined;
+        carregarVisao();
+      }, 250);
+    };
+    carregarVisao();
+    map.on('moveend', agendar);
+    return () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+      pedido += 1;
+      map.off('moveend', agendar);
+      if (mapRef.current === map) removeCnefeLayer(map);
+    };
+  }, [dataMap, showCnefe, styleRevision, theme, notify]);
 
   // Filtros e visibilidade mudam sem recarregar o GeoJSON.
   useEffect(() => {
@@ -439,7 +535,7 @@ export default function App() {
   // --- Seleção -----------------------------------------------------------
 
   useEffect(() => {
-    if (ROOFTOP_ONLY || !selectedId || !user) return;
+    if (!selectedId || !user) return;
     const controller = new AbortController();
     fetchJson(`${API_URL}/api/buildings/${encodeURIComponent(selectedId)}`, controller.signal)
       .then((feature: GeoJsonFeature) => setSelectedDetail({ id: selectedId, feature }))
@@ -469,7 +565,7 @@ export default function App() {
 
   useEffect(() => {
     const map = readyMap;
-    if (!map || map !== mapRef.current || ROOFTOP_ONLY) return;
+    if (!map || map !== mapRef.current) return;
     const source = map.getSource('selected') as maplibregl.GeoJSONSource | undefined;
     const isBuilding = selected3dFeature
       && ['Polygon', 'MultiPolygon'].includes(selected3dFeature.geometry.type)
@@ -494,13 +590,13 @@ export default function App() {
 
   useEffect(() => {
     const map = dataMap;
-    if (!map || map !== mapRef.current || ROOFTOP_ONLY) return;
+    if (!map || map !== mapRef.current) return;
     applyDataFilters(map, { showPontos, soDoSelecionado, selectedGeometryKey, tipos }, theme);
   }, [dataMap, showPontos, soDoSelecionado, selectedGeometryKey, tipos, theme, styleRevision]);
 
   useEffect(() => {
     const map = dataMap;
-    if (!map || map !== mapRef.current || ROOFTOP_ONLY) return;
+    if (!map || map !== mapRef.current) return;
     setAllBuildings3d(map, all3d);
     saveAll3d(all3d);
   }, [dataMap, all3d, styleRevision]);
@@ -738,16 +834,29 @@ export default function App() {
           ) : ROOFTOP_ONLY ? (
             <div className="layers">
               <div className="stat-hero">
-                <span className="stat-value">{meta?.address_count ?? 0}</span>
+                <span className="stat-value">{rooftopMeta?.address_count ?? 0}</span>
                 <span className="stat-caption">pontos rooftop gerados localmente</span>
               </div>
               <RooftopControls
                 value={rooftopOptions}
                 onChange={setRooftopOptions}
-                meta={meta}
+                meta={rooftopMeta}
                 theme={theme}
               />
-              <p className="hint">Camada de conferência do algoritmo CNEFE rooftop. As fontes do Atlas estão desligadas neste modo. Clique num ponto ou polígono para ver o detalhe.</p>
+              <label className="switch-row" style={{ marginTop: 12 }}>
+                <span>
+                  <strong>CNEFE original</strong>
+                  <span className="muted">Endereços brutos antes do rooftop, para comparação</span>
+                </span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  className="switch"
+                  checked={showCnefe}
+                  onChange={(event) => setShowCnefe(event.target.checked)}
+                />
+              </label>
+              <p className="hint">Camada de conferência do algoritmo CNEFE rooftop sobre os prédios do Atlas, que carregam por área visível. Clique num ponto ou polígono para ver o detalhe.</p>
               <p className="muted small">Aproxime o mapa para visualizar os rótulos dos endereços.</p>
             </div>
           ) : selectedId ? (

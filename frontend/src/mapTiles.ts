@@ -59,6 +59,11 @@ export interface MapMeta {
   high_count?: number;
   medium_count?: number;
   low_count?: number;
+  high_pct?: number;
+  medium_pct?: number;
+  low_pct?: number;
+  coverage_pct?: number;
+  anexo_count?: number;
   revise_face_count?: number;
   polygon_count?: number;
   polygon_file?: string;

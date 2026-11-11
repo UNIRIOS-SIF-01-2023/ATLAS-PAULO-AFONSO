@@ -1056,6 +1056,101 @@ def test_rooftop_poligonos_cruzam_com_os_pontos(tmp_path, monkeypatch):
     assert doc["features"][0]["properties"]["bld_id"] == "predio-a"
 
 
+def test_rooftop_bbox_filtra_por_area_visivel(tmp_path, monkeypatch):
+    import json
+
+    from backend import rooftop
+
+    pontos = tmp_path / "pontos.geojson"
+    poligonos = tmp_path / "poligonos.geojson"
+    pontos.write_text(json.dumps(_rooftop_geojson()), encoding="utf-8")
+    poligonos.write_text(json.dumps(_rooftop_poligonos()), encoding="utf-8")
+    monkeypatch.setattr(rooftop, "caminho", lambda: pontos)
+    monkeypatch.setattr(rooftop, "caminho_poligonos", lambda: poligonos)
+
+    # Sem bbox, tudo; com bbox que pega só o ponto leste, só ele volta.
+    assert len(rooftop.geojson()["features"]) == 2
+    leste = rooftop.geojson("-38.2295,-9.3995,-38.2285,-9.3985")
+    assert len(leste["features"]) == 1
+    assert leste["features"][0]["properties"]["endereco"] == "Rua B, 20"
+    assert len(rooftop.poligonos("-38.2302,-9.4002,-38.2298,-9.3998")["features"]) == 1
+    # Caixa que não alcança nada volta vazia, e bbox inválida é rejeitada.
+    assert rooftop.geojson("0,0,0.0001,0.0001")["features"] == []
+    for ruim in ["a,b,c,d", "-38.23,-9.40", "-38.2285,-9.4005,-38.2295,-9.3995", "nan,-9.4005,-38.2285,-9.3995"]:
+        with pytest.raises(ValueError):
+            rooftop.geojson(ruim)
+
+
+def _cnefe_csv():
+    header = ("COD_UNICO_ENDERECO;COD_UF;COD_MUNICIPIO;COD_SETOR;NUM_QUADRA;NUM_FACE;CEP;"
+              "DSC_LOCALIDADE;LOGRAD_NUM;COMPLEMENTO;NV_GEO_COORD;COD_TIPO_ESPECI;DSC_ESTABELECIMENTO;"
+              "COD_ESPECIE;LONGITUDE;LATITUDE;NOM_TIPO_SEGLOGR;NOM_TITULO_SEGLOGR;NOM_SEGLOGR;"
+              "NUM_ENDERECO;DSC_MODIFICADOR;wkt;lon;lat")
+    linhas = [
+        "27361945;29;2924009;292400905000060P;12;4;48601208;CENTRO;AVENIDA APOLONIO SALES, 1090;;1;104.0;HOTEL;2;-38.229062;-9.39825;;;AVENIDA APOLONIO SALES;1090;;POINT (-38.229062 -9.39825);-38.229062;-9.39825",
+        "27364721;29;2924009;292400905000070P;2;1;48603020;PERPETUO SOCORRO;RUA SAO VICENTE DE PAULO, 105;;1;104.0;CASA;2;-38.226453;-9.405486;;;RUA SAO VICENTE DE PAULO;105;;POINT (-38.226453 -9.405486);-38.226453;-9.405486",
+        "27370001;29;2924009;292400905000080P;3;1;48603020;CENTRO;SEM PONTO;;1;104.0;X;2;;;;;;;AVENIDA X;10;;POINT ();",
+    ]
+    return "\n".join([header] + linhas)
+
+
+def test_cnefe_original_csv_vira_pontos_filtraveis(tmp_path, monkeypatch):
+    from backend import rooftop
+
+    csv_path = tmp_path / "cnefe_original.csv"
+    csv_path.write_text(_cnefe_csv(), encoding="utf-8-sig")
+    monkeypatch.setattr(rooftop, "caminho_cnefe", lambda: csv_path)
+
+    doc = rooftop.cnefe_geojson()
+    # A linha sem lon/lat é ignorada; as demais viram pontos com endereço.
+    assert len(doc["features"]) == 2
+    assert doc["features"][0]["properties"]["endereco"] == "AVENIDA APOLONIO SALES, 1090"
+    leste = rooftop.cnefe_geojson("-38.2295,-9.399,-38.2285,-9.398")
+    assert len(leste["features"]) == 1
+    assert leste["features"][0]["properties"]["addr_key"] == "27361945"
+
+
+def test_endpoint_cnefe_original(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from backend import main, rooftop
+
+    csv_path = tmp_path / "cnefe_original.csv"
+    csv_path.write_text(_cnefe_csv(), encoding="utf-8-sig")
+    monkeypatch.setattr(rooftop, "caminho_cnefe", lambda: csv_path)
+    client = TestClient(main.app)
+
+    resp = client.get("/api/rooftop/cnefe")
+    assert resp.status_code == 200
+    assert len(resp.json()["features"]) == 2
+    filtrada = client.get("/api/rooftop/cnefe?bbox=-38.2295,-9.399,-38.2285,-9.398")
+    assert len(filtrada.json()["features"]) == 1
+    assert client.get("/api/rooftop/cnefe?bbox=a,b,c,d").status_code == 422
+
+
+def test_endpoints_rooftop_aceitam_bbox(tmp_path, monkeypatch):
+    import json
+
+    from fastapi.testclient import TestClient
+
+    from backend import main, rooftop
+
+    pontos = tmp_path / "pontos.geojson"
+    poligonos = tmp_path / "poligonos.geojson"
+    pontos.write_text(json.dumps(_rooftop_geojson()), encoding="utf-8")
+    poligonos.write_text(json.dumps(_rooftop_poligonos()), encoding="utf-8")
+    monkeypatch.setattr(rooftop, "caminho", lambda: pontos)
+    monkeypatch.setattr(rooftop, "caminho_poligonos", lambda: poligonos)
+
+    client = TestClient(main.app)
+    resp = client.get("/api/rooftop/vila-nobre?bbox=-38.2295,-9.3995,-38.2285,-9.3985")
+    assert resp.status_code == 200
+    assert len(resp.json()["features"]) == 1
+    assert resp.json()["features"][0]["properties"]["endereco"] == "Rua B, 20"
+    assert client.get("/api/rooftop/vila-nobre/poligonos?bbox=a,b,c,d").status_code == 422
+    assert client.get("/api/rooftop/vila-nobre/poligonos").status_code == 200
+
+
 def test_endpoints_rooftop_servem_camada_local(tmp_path, monkeypatch):
     import json
 
