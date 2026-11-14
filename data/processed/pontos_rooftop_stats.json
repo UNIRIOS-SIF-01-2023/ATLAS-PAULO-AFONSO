@@ -1,30 +1,61 @@
 {
   "registros_cnefe": 52821,
-  "enderecos_base": 50517,
-  "com_ponto": 45758,
-  "sem_ponto": 4759,
+  "enderecos_base": 50771,
+  "com_ponto": 46022,
+  "sem_ponto": 4749,
   "taxa_acerto_pct": 90.6,
   "por_metodo": {
-    "raio": 36142,
-    "anexo": 4888,
-    "sem_match": 4759,
-    "raio+ordem": 4241,
-    "vizinho": 487
+    "raio": 36165,
+    "anexo": 5142,
+    "sem_match": 4749,
+    "raio+ordem": 4276,
+    "vizinho": 439
   },
   "por_confianca": {
-    "media": 32639,
-    "alta": 12856,
-    "nenhuma": 4759,
-    "baixa": 263
+    "media": 33014,
+    "alta": 12791,
+    "nenhuma": 4749,
+    "baixa": 217
   },
   "sn_total": 5300,
-  "sn_com_ponto": 3949,
-  "sn_sem_ponto": 1351,
-  "anexos": 4888,
+  "sn_com_ponto": 3958,
+  "sn_sem_ponto": 1342,
+  "anexos": 5142,
   "condominios": 0,
-  "revisar_face": 17120,
-  "mudou_bld": 9129,
-  "confiabilidade_media": 64.6,
-  "concordancias": 73493,
-  "discordancias": 7213
+  "revisar_face": 17775,
+  "mudou_bld": 9418,
+  "confiabilidade_media": 64.5,
+  "concordancias": 73752,
+  "discordancias": 7209,
+  "corroborados_1": 46021,
+  "corroborados_1_pct": 90.6,
+  "corroborados_2": 27731,
+  "corroborados_2_pct": 54.6,
+  "por_fonte": {
+    "lote_prefeitura": {
+      "concorda": 0,
+      "discorda": 0,
+      "sem_dado": -1
+    },
+    "osm_numero": {
+      "concorda": 0,
+      "discorda": 0,
+      "sem_dado": -1
+    },
+    "paridade": {
+      "concorda": 27734,
+      "discorda": 7205,
+      "sem_dado": -34940
+    },
+    "porte": {
+      "concorda": 46018,
+      "discorda": 4,
+      "sem_dado": -46023
+    },
+    "coerencia_especie": {
+      "concorda": 0,
+      "discorda": 0,
+      "sem_dado": -1
+    }
+  }
 }

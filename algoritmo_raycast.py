@@ -603,7 +603,10 @@ def _chave_face(setor, quadra, face) -> str:
     def normalizar(valor):
         texto = str(valor).strip()
         return texto[:-2] if texto.endswith(".0") else texto
-    return "|".join(normalizar(valor) for valor in (setor, quadra, face))
+    setor_n = normalizar(setor)
+    quadra_n = normalizar(quadra).zfill(3)
+    face_n = normalizar(face).zfill(3)
+    return f"{setor_n}|{quadra_n}|{face_n}"
 
 
 def _segmento_dominante(geometria):
