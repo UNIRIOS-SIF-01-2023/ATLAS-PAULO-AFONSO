@@ -1163,6 +1163,142 @@ def avaliar_conflitos(a, blds):
     return a
 
 
+def _valor_endereco(valor) -> str:
+    if pd.isna(valor):
+        return ""
+    texto = re.sub(r"\s+", "", str(valor)).upper()
+    return texto[:-2] if texto.endswith(".0") else texto
+
+
+def _numeros_endereco(valor) -> set[str]:
+    if pd.isna(valor):
+        return set()
+    return {_valor_endereco(item) for item in re.split(r"[;,/|]", str(valor)) if _valor_endereco(item)}
+
+
+def _coluna_existente(frame, nomes):
+    return next((nome for nome in nomes if nome in frame.columns), None)
+
+
+def aplicar_evidencias(a, blds, lotes_path=None, osm_numeros_path=None):
+    """Anota sinais independentes de coerência; não muda a edificação atribuída."""
+    estados = {nome: np.full(len(a), "sem_dado", dtype=object) for nome in
+               ("lote_prefeitura", "osm_numero", "paridade", "porte", "coerencia_especie")}
+    numeros = pd.to_numeric(a["num"], errors="coerce") if "num" in a else pd.Series(np.nan, index=a.index)
+    sn = a["sn"].fillna(False).astype(bool) if "sn" in a else pd.Series(False, index=a.index)
+    paridades = numeros.mod(2)
+    totais_paridade = {}
+    for face, indices in a.groupby("face_key").groups.items():
+        valores = paridades.loc[indices].dropna().astype(int)
+        totais_paridade[face] = (int((valores == 0).sum()), int((valores == 1).sum()))
+
+    if lotes_path:
+        lotes = gpd.read_file(lotes_path)
+        coluna_numero = _coluna_existente(lotes, (
+            "NUM_ENDERECO", "numero", "NUMERO", "housenumber", "addr:housenumber", "numero_porta",
+        ))
+        if coluna_numero is None:
+            raise ValueError("Arquivo de lotes da prefeitura sem campo de número de porta.")
+        if lotes.crs is None:
+            raise ValueError("Arquivo de lotes da prefeitura precisa declarar o CRS.")
+        lotes = lotes.to_crs(blds.crs)
+        arvore_lotes = STRtree(lotes.geometry.to_numpy())
+        for i, linha in enumerate(a.itertuples()):
+            bi = int(linha.bld)
+            if bi < 0 or bi >= len(blds) or not _valor_endereco(linha.num):
+                continue
+            geom = blds.geometry.iloc[bi]
+            candidatos = arvore_lotes.query(geom, predicate="intersects")
+            numeros_lote = set().union(*(
+                _numeros_endereco(lotes.iloc[j][coluna_numero]) for j in candidatos
+            )) if len(candidatos) else set()
+            if numeros_lote:
+                estados["lote_prefeitura"][i] = (
+                    "concorda" if _valor_endereco(linha.num) in numeros_lote else "discorda"
+                )
+
+    osm_numeros = None
+    coluna_osm_bld = _coluna_existente(blds, ("addr:housenumber", "addr_housenumber", "housenumber"))
+    if osm_numeros_path:
+        osm = gpd.read_file(osm_numeros_path)
+        coluna_osm = _coluna_existente(osm, ("addr:housenumber", "addr_housenumber", "housenumber"))
+        if coluna_osm is not None:
+            if osm.crs is None:
+                raise ValueError("Arquivo de endereços OSM precisa declarar o CRS.")
+            osm = osm.to_crs(blds.crs)
+            validos = osm.geometry.notna() & osm.geometry.geom_type.isin(("Point", "MultiPoint"))
+            osm = osm.loc[validos].copy()
+            osm_numeros = (osm.geometry.to_numpy(), osm[coluna_osm].to_numpy())
+    arvore_osm = STRtree(osm_numeros[0]) if osm_numeros and len(osm_numeros[0]) else None
+
+    for i, linha in enumerate(a.itertuples()):
+        bi = int(linha.bld)
+        if bi < 0 or bi >= len(blds):
+            continue
+        bld = blds.iloc[bi]
+        geom = bld.geometry
+
+        osm_candidatos = []
+        if coluna_osm_bld:
+            osm_candidatos.extend(_numeros_endereco(bld[coluna_osm_bld]))
+        if arvore_osm is not None and osm_numeros is not None:
+            area_busca = shapely.buffer(geom, 15.0)
+            indices_osm = arvore_osm.query(area_busca, predicate="intersects")
+            for oi in indices_osm:
+                osm_candidatos.extend(_numeros_endereco(osm_numeros[1][oi]))
+        if osm_candidatos and _valor_endereco(linha.num):
+            estados["osm_numero"][i] = (
+                "concorda" if _valor_endereco(linha.num) in osm_candidatos else "discorda"
+            )
+
+        if pd.notna(numeros.iloc[i]) and not sn.iloc[i]:
+            contagem_par, contagem_impar = totais_paridade.get(linha.face_key, (0, 0))
+            if int(numeros.iloc[i]) % 2 == 0:
+                contagem_par -= 1
+            else:
+                contagem_impar -= 1
+            if contagem_par != contagem_impar:
+                maioria = 0 if contagem_par > contagem_impar else 1
+                estados["paridade"][i] = "concorda" if int(numeros.iloc[i]) % 2 == maioria else "discorda"
+
+        unidades = pd.to_numeric(pd.Series([getattr(linha, "unidades", np.nan)]), errors="coerce").iat[0]
+        area = float(geom.area) if geom is not None and not geom.is_empty else np.nan
+        if pd.notna(unidades) and np.isfinite(area):
+            estados["porte"][i] = "discorda" if unidades >= 10 and area < 80.0 else "concorda"
+
+        classe_col = _coluna_existente(blds, ("class", "classe", "tipo", "subtype"))
+        especie = _valor_endereco(getattr(linha, "especie", ""))
+        classe = _valor_endereco(bld[classe_col]) if classe_col else ""
+        if especie and classe:
+            if especie == classe:
+                estados["coerencia_especie"][i] = "concorda"
+            else:
+                # Só sinaliza divergência quando ambos usam uma classificação textual
+                # equivalente; códigos numéricos sem tabela oficial ficam sem dado.
+                categorias = {
+                    "residencial": {"residential", "house", "dwelling"},
+                    "comercial": {"commercial", "retail", "office"},
+                    "industrial": {"industrial", "warehouse"},
+                    "institucional": {"education", "school", "hospital", "civic"},
+                }
+                cat_especie = next((k for k, vals in categorias.items() if especie in vals), None)
+                cat_classe = next((k for k, vals in categorias.items() if classe in vals), None)
+                if cat_especie and cat_classe:
+                    estados["coerencia_especie"][i] = "concorda" if cat_especie == cat_classe else "discorda"
+
+    for nome, valores in estados.items():
+        a[nome] = valores
+    colunas_sinais = list(estados)
+    a["n_concordam"] = a[colunas_sinais].eq("concorda").sum(axis=1).astype(int)
+    a["n_discordam"] = a[colunas_sinais].eq("discorda").sum(axis=1).astype(int)
+    a["evidencias"] = a.apply(
+        lambda row: "; ".join(f"{nome}={row[nome]}" for nome in colunas_sinais), axis=1
+    )
+    revisar = a["revisar_face"].fillna(False).astype(bool) if "revisar_face" in a else pd.Series(False, index=a.index)
+    a["revisar_face"] = revisar | a["lote_prefeitura"].eq("discorda")
+    return a
+
+
 def vincular_anexos(a, blds):
     """Identifica edificações B sem endereço no fundo do lote de A (Tarefa 3)."""
     if "tipo_vinculo" not in blds.columns:
@@ -1579,6 +1715,14 @@ def escrever_web_geojson(a, path):
                 "confianca": row["confianca"],
                 "compartilhado": bool(row.get("compartilhado", False)),
                 "motivo_confianca": str(row.get("motivo_confianca") or ""),
+                "n_concordam": int(row.get("n_concordam", 0)),
+                "n_discordam": int(row.get("n_discordam", 0)),
+                "evidencias": str(row.get("evidencias", "")),
+                "lote_prefeitura": row.get("lote_prefeitura", "sem_dado"),
+                "osm_numero": row.get("osm_numero", "sem_dado"),
+                "paridade": row.get("paridade", "sem_dado"),
+                "porte": row.get("porte", "sem_dado"),
+                "coerencia_especie": row.get("coerencia_especie", "sem_dado"),
                 "revisar_face": bool(row["revisar_face"]),
                 "mudou_bld": bool(row["mudou_bld"]) if pd.notna(row["mudou_bld"]) else False,
                 "mudou_ponto": bool(row["mudou_ponto"]) if pd.notna(row["mudou_ponto"]) else False,
@@ -1661,7 +1805,8 @@ def escrever_web_poligonos(a, blds, path):
 def processar(cnefe_path, edif_path, saida, debug=False, debug_gpkg=None,
               debug_csv_dir=None, web_geojson=None, web_poligonos=None,
               perimetros=None, modelo=None, params=None, corte_prob=None,
-              faces_ibge_path=None, medir_direcao=False):
+              faces_ibge_path=None, medir_direcao=False, lotes_path=None,
+              osm_numeros_path=None):
     if params:
         p_dict = json.loads(Path(params).read_text(encoding="utf-8")) if isinstance(params, (str, Path)) and Path(params).exists() else params
         if isinstance(p_dict, dict):
@@ -1725,6 +1870,11 @@ def processar(cnefe_path, edif_path, saida, debug=False, debug_gpkg=None,
     a, blds, df_condo = vincular_condominios(a, blds, perimetros_path=perimetros)
     a, blds, df_anexos = vincular_anexos(a, blds)
     a = checar_ordem(a)
+    a = aplicar_evidencias(a, blds, lotes_path=lotes_path, osm_numeros_path=osm_numeros_path)
+    if dbg is not None:
+        dbg.etapa("evidencias", enderecos=len(a), concordancias=int(a["n_concordam"].sum()),
+                  discordancias=int(a["n_discordam"].sum()),
+                  revisoes_por_lote=int(a["lote_prefeitura"].eq("discorda").sum()))
     a = aplicar_modelo_probabilidade(a, modelo_path=modelo, corte=corte_prob)
     depois = _snapshot(a)
     diff = comparar_antes_depois(antes, depois)
@@ -1765,7 +1915,9 @@ def processar(cnefe_path, edif_path, saida, debug=False, debug_gpkg=None,
             "metodo_antes", "confianca", "confianca_antes", "compartilhado", "motivo_confianca",
             "tipo_vinculo", "endereco_ref", "condominio_sem_perimetro", "prob_correto",
             "mudou_bld", "mudou_ponto", "deslocamento_m", "dp", "dp_custo", "share", "dmin",
-            "acerto_raio_central", "ambiguo", "face_key", "face_rho", "fonte_direcao",
+            "acerto_raio_central", "ambiguo", "lote_prefeitura", "osm_numero", "paridade",
+            "porte", "coerencia_especie", "n_concordam", "n_discordam", "evidencias",
+            "face_key", "face_rho", "fonte_direcao",
             "revisar_face", "geometry"]
     cols = [c for c in cols if c in a.columns]
     saida = Path(saida)
@@ -1812,6 +1964,10 @@ def _cli():
                    help="Base de Faces de Logradouros IBGE com CD_SETOR/CD_QUADRA/CD_FACE e linhas")
     p.add_argument("--medir-direcao", action="store_true",
                    help="compara com SVD e mede endereços que mudaram de edificação; requer --faces-ibge")
+    p.add_argument("--lotes-prefeitura", default=None,
+                   help="lotes com geometria e número de porta para evidência independente")
+    p.add_argument("--osm-numeros", default=None,
+                   help="pontos OSM com addr:housenumber para evidência independente")
     p.add_argument("--modelo", default=None,
                    help="caminho do modelo scikit-learn (.joblib) treinado para prever acerto")
     p.add_argument("--params", default=None,
@@ -1854,6 +2010,8 @@ def _cli():
         corte_prob=args.corte_prob,
         faces_ibge_path=args.faces_ibge,
         medir_direcao=args.medir_direcao,
+        lotes_path=args.lotes_prefeitura,
+        osm_numeros_path=args.osm_numeros,
     )
 
 
