@@ -63,6 +63,10 @@ export function RooftopCard({ selection, theme = 'dark', onClose, onCopy }: Prop
       ) : (
         <dl className="facts">
           <div><dt>Método</dt><dd>{texto(props.metodo)}</dd></div>
+          <div>
+            <dt>Confiabilidade</dt>
+            <dd>{numero(props.confiabilidade_pct) != null ? `${formatNumber(numero(props.confiabilidade_pct)!)}%` : '—'}</dd>
+          </div>
           <div><dt>Unidades</dt><dd>{formatNumber(numero(props.unidades) ?? 0)}</dd></div>
           <div>
             <dt>Deslocamento</dt>

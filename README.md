@@ -161,7 +161,7 @@ Abra **http://127.0.0.1:5173/**. Para parar o banco: `bash scripts/db.sh stop`.
 
 ### Camada de conferência CNEFE rooftop (local, sem API externa)
 
-O `cnefe_rooftop.py` usa quadra/face do CNEFE para lançar raios da rua para dentro do quarteirão e achar o prédio de cada endereço. Para rodar fora do backend:
+O `cnefe_rooftop.py` é o shim do motor ativo, `algoritmo_raycast.py`: usa quadra/face do CNEFE para lançar raios da rua para dentro do quarteirão e achar o prédio de cada endereço. A versão clássica (pré direção-IBGE/evidências) fica preservada em `cnefe_rooftop_classico.py`; compare os dois motores com `scripts/comparar_algoritmos.py <cnefe> <edificacoes>`. Para rodar fora do backend:
 
 ```bash
 ./.venv/bin/pip install -r requirements-rooftop.txt

@@ -901,7 +901,6 @@ export default function App() {
         bearing={bearing}
         is3d={is3d}
         all3d={all3d}
-        theme={theme}
         onToggleAll3d={() => {
           setAll3d((all) => !all);
           // Ver prédios em 3D de cima não mostra nada; inclina a câmera.
@@ -915,7 +914,6 @@ export default function App() {
         onRecenter={recenter}
         onLocate={locate}
         onReport={() => setShowReport(true)}
-        onToggleTheme={toggleTheme}
       />
 
       <div className={`loading-pill glass${loading ? ' show' : ''}`} role="status" aria-live="polite">

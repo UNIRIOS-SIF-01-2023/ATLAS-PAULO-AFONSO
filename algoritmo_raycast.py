@@ -118,8 +118,15 @@ def _layer_para_csv(gdf: "gpd.GeoDataFrame") -> pd.DataFrame:
     if gdf.crs is not None:
         w = gdf.to_crs(4326)
         centros = shapely.centroid(w.geometry.to_numpy())
-        df["lon"] = shapely.get_x(centros)
-        df["lat"] = shapely.get_y(centros)
+        lon = np.full(len(centros), np.nan)
+        lat = np.full(len(centros), np.nan)
+        if len(centros):
+            ok_c = ~shapely.is_empty(centros)
+            if ok_c.any():
+                sub = centros[ok_c]
+                lon[ok_c] = shapely.get_x(sub)
+                lat[ok_c] = shapely.get_y(sub)
+        df["lon"], df["lat"] = lon, lat
     return df
 
 
@@ -332,8 +339,25 @@ def gerar_relatorio_entrada(cnefe_path: str | Path, edificios_path: str | Path,
 
     numero = dados["num"].astype(str).str.strip()
     lograd_num = df["LOGRAD_NUM"].astype(str).str.strip() if "LOGRAD_NUM" in df else pd.Series("", index=df.index)
-    numero_extraido = lograd_num.str.extract(r",\s*([0-9]+[A-Za-z]?)\s*$", expand=False)
+    partes_ln = lograd_num.str.extract(
+        r"^(?P<rua>.+?),\s*(?P<num>\d+)(?:\s+(?P<mod>\S.*?))?\s*$", expand=False)
+    numero_extraido = partes_ln["num"]
     numero_vazio = _valor_vazio(dados["num"]) & _valor_vazio(numero_extraido)
+
+    # Decomposição dos padrões de numeração: o modificador ("13 A", "89 SMS")
+    # faz parte do número oficial; ignorá-lo vira S/N indevidamente.
+    tem_lograd_num = "LOGRAD_NUM" in df.columns
+    num_direto = ~_valor_vazio(numero)
+    tem_num_ln = numero_extraido.notna()
+    mod_ln = partes_ln["mod"] if tem_lograd_num else pd.Series(pd.NA, index=df.index)
+    sn_expl = lograd_num.str.extract(r",\s*(S/?N\.?)\s*$", expand=False).notna() & ~tem_num_ln
+    padroes_numero = [
+        ("Número direto na coluna", int(num_direto.sum())),
+        ("Número sem modificador", int((~num_direto & tem_num_ln & mod_ln.isna()).sum()) if tem_lograd_num else None),
+        ("Número com modificador (ex.: 13 A, 89 SMS)", int((~num_direto & tem_num_ln & mod_ln.notna()).sum()) if tem_lograd_num else None),
+        ("S/N explícito no LOGRAD_NUM", int(sn_expl.sum()) if tem_lograd_num else None),
+        ("Sem número identificável", int((numero_vazio & ~sn_expl).sum())),
+    ]
 
     faltantes = {
         "setor": int(_valor_vazio(dados["setor"]).sum()),
@@ -425,6 +449,11 @@ def gerar_relatorio_entrada(cnefe_path: str | Path, edificios_path: str | Path,
         f"<tr><td>{html.escape(nome)}</td><td>{contagem:,}</td><td>{100 * contagem / total:.2f}%</td></tr>"
         for nome, contagem in faltantes.items()
     )
+    html_padroes_numero = "".join(
+        f"<tr><td>{html.escape(nome)}</td><td>{'—' if contagem is None else f'{contagem:,}'}</td>"
+        f"<td>{'—' if contagem is None else f'{100 * contagem / total:.2f}%'}</td></tr>"
+        for nome, contagem in padroes_numero
+    )
     html_medidas = "".join(
         f"<li>{html.escape(nome)}: <strong>{html.escape(valor)}</strong></li>" for nome, valor in medidas
     )
@@ -441,6 +470,8 @@ def gerar_relatorio_entrada(cnefe_path: str | Path, edificios_path: str | Path,
 <h2>Nível de geocodificação</h2><table><thead><tr><th>NV_GEO_COORD</th><th>Registros</th><th>Percentual</th></tr></thead><tbody>{html_niveis}</tbody></table>
 <p>Filtro ativo: NV_GEO_COORD ∈ {html.escape(str(sorted(niveis_ok)))}. Descartados: <strong>{descartados_nivel:,} ({100 * descartados_nivel / total:.2f}%)</strong>.</p>
 <h2>Campos ausentes</h2><table><thead><tr><th>Campo</th><th>Sem valor</th><th>Percentual</th></tr></thead><tbody>{html_faltantes}</tbody></table>
+<h2>Padrões de numeração</h2><table><thead><tr><th>Padrão</th><th>Registros</th><th>Percentual</th></tr></thead><tbody>{html_padroes_numero}</tbody></table>
+<p class="note">O modificador ("13 A", "89 SMS") faz parte do número oficial do CNEFE; tratá-lo como S/N era erro do parser, corrigido em carregar_cnefe. S/N explícito é o dado real do IBGE.</p>
 <h2>Geometria e duplicidades</h2><ul>{html_medidas}</ul>
 <h2>Colunas de complemento presentes</h2><p>{html.escape(', '.join(colunas_complemento) if colunas_complemento else 'Nenhuma')}</p>
 <p class="note">Exemplos são limitados a expressões estruturais de unidade/endereço; outros textos foram omitidos para evitar exposição de dados pessoais.</p><ol>{html_complementos}</ol>
@@ -455,6 +486,7 @@ def gerar_relatorio_entrada(cnefe_path: str | Path, edificios_path: str | Path,
         "descartados_nivel": descartados_nivel,
         "faltantes": {nome: {"registros": contagem, "percentual": round(100 * contagem / total, 2)}
                       for nome, contagem in faltantes.items()},
+        "padroes_numero": {nome: contagem for nome, contagem in padroes_numero},
         "faces_1_2_enderecos": faces_1_2,
         "faces_sem_reta_valida": faces_sem_reta,
         "duplicatas_entre_faces": duplicatas_entre_faces,
@@ -771,6 +803,12 @@ def lancar_raios(a, blds, debug: Debug | None = None):
             continue
 
         inter = shapely.intersection(raios[r_idx], geoms[b_idx])
+        # toques de canto podem gerar interseção vazia (dist/score viram NaN)
+        nao_vazio = ~shapely.is_empty(inter)
+        if not nao_vazio.all():
+            r_idx, b_idx, inter = r_idx[nao_vazio], b_idx[nao_vazio], inter[nao_vazio]
+        if len(r_idx) == 0:
+            continue
         dist = shapely.distance(shapely.points(o[r_idx]), inter)
         todos = pd.DataFrame({"ray": r_idx, "bld": b_idx, "dist": dist})
         todos["addr"] = addr[todos["ray"].to_numpy()]
@@ -1740,6 +1778,28 @@ def resumir_edificacoes(a, blds):
 
 
 # ---------------------------------------------------------------- web
+def adicionar_confiabilidade(a):
+    """Confiança numérica (0-100) por endereço para o card do mapa.
+
+    Base pela confiança qualitativa (alta=80, média=60, baixa=40, nenhuma=20);
+    +5 por evidência concordante (até +15), -10 por discordante, +5 se o raio
+    central acertou, -5 se o prédio é compartilhado, -10 se endereço S/N e -5
+    se a face está marcada para revisão.
+    """
+    idx = a.index
+    base = a["confianca"].map({"alta": 80, "media": 60, "baixa": 40, "nenhuma": 20}).fillna(20).astype(float)
+    conc = pd.to_numeric(a.get("n_concordam", pd.Series(0, index=idx)), errors="coerce").fillna(0).clip(upper=3)
+    disc = pd.to_numeric(a.get("n_discordam", pd.Series(0, index=idx)), errors="coerce").fillna(0)
+    compartilhado = a.get("compartilhado", pd.Series(False, index=idx)).fillna(False).astype(bool)
+    centro = a.get("acerto_raio_central", pd.Series(False, index=idx)).fillna(False).astype(bool)
+    sn = a.get("sn", pd.Series(False, index=idx)).fillna(False).astype(bool)
+    revisar = a.get("revisar_face", pd.Series(False, index=idx)).fillna(False).astype(bool)
+    pct = base + 5 * conc - 10 * disc + centro.astype(float) * 5 - compartilhado.astype(float) * 5 \
+        - sn.astype(float) * 10 - revisar.astype(float) * 5
+    a["confiabilidade_pct"] = pct.clip(0, 100).round().astype(int)
+    return a
+
+
 def escrever_web_geojson(a, path):
     """GeoJSON 4326 só com os pontos finais, para o backend/frontend servir."""
     m = a[a["bld"] >= 0].copy()
@@ -1759,6 +1819,7 @@ def escrever_web_geojson(a, path):
                 "bld_id": row.get("bld_id", ""),
                 "metodo": row["metodo"],
                 "confianca": row["confianca"],
+                "confiabilidade_pct": int(row.get("confiabilidade_pct", 0)),
                 "compartilhado": bool(row.get("compartilhado", False)),
                 "motivo_confianca": str(row.get("motivo_confianca") or ""),
                 "n_concordam": int(row.get("n_concordam", 0)),
@@ -1922,6 +1983,7 @@ def processar(cnefe_path, edif_path, saida, debug=False, debug_gpkg=None,
                   discordancias=int(a["n_discordam"].sum()),
                   revisoes_por_lote=int(a["lote_prefeitura"].eq("discorda").sum()))
     a = aplicar_modelo_probabilidade(a, modelo_path=modelo, corte=corte_prob)
+    a = adicionar_confiabilidade(a)
     depois = _snapshot(a)
     diff = comparar_antes_depois(antes, depois)
 
