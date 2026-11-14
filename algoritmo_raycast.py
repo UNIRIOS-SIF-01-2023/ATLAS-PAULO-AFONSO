@@ -57,6 +57,7 @@ CFG = {
     "csv_encoding": "utf-8",
     "niveis_ok": [1],          # 1 = coordenada original do Censo (as demais são medianas da rua)
     "raio_max": 40.0,          # comprimento dos raios (m)
+    "chunk_enderecos": 2000,   # endereços por chunk no lancar_raios (pico de memória)
     "angulos": [-30, -20, -10, 0, 10, 20, 30],  # leque em graus
     "decaimento": 15.0,        # peso cai com a distância (m)
     "profundidade": 4.0,       # quanto entrar na edificação a partir da fachada (m)
@@ -700,6 +701,12 @@ def calcular_normais(a, crs=None, debug: Debug | None = None,
 
 # ---------------------------------------------------------------- raios
 def lancar_raios(a, blds, debug: Debug | None = None):
+    """Leque de raios por endereço; primeira edificação atingida = dona.
+
+    Processa em chunks de CFG["chunk_enderecos"] endereços para limitar o pico
+    de memória (raios + STRtree por chunk). A atribuição gulosa global fica em
+    `atribuir`, então os resultados são idênticos ao cálculo em bloco único.
+    """
     ang_deg = np.array(CFG["angulos"], dtype=float)
     ang = np.deg2rad(ang_deg)
     peso_ang = np.cos(ang) ** 2
@@ -717,77 +724,110 @@ def lancar_raios(a, blds, debug: Debug | None = None):
             debug.etapa("hits", raios=0, intersecoes=0, escolhidos=0)
         return vazio, np.array([])
 
-    origens, dirs, addr, w, lado, angulos = [], [], [], [], [], []
-    for sinal in (1, -1):
-        sel = np.ones(len(ai), bool) if sinal == 1 else amb   # lado oposto só se ambíguo
-        for k, th in enumerate(ang):
-            c, s = np.cos(th), np.sin(th)
-            d = sinal * np.column_stack([n[:, 0] * c - n[:, 1] * s, n[:, 0] * s + n[:, 1] * c])
-            origens.append(p[sel]); dirs.append(d[sel]); addr.append(ai[sel])
-            w.append(np.full(sel.sum(), peso_ang[k] * (1.0 if sinal == 1 else 0.5)))
-            lado.append(np.full(sel.sum(), sinal))
-            angulos.append(np.full(sel.sum(), ang_deg[k]))
-    o, d = np.vstack(origens), np.vstack(dirs)
-    addr, w = np.concatenate(addr), np.concatenate(w)
-    lado, angulos = np.concatenate(lado), np.concatenate(angulos)
-    raios = shapely.linestrings(np.stack([o, o + d * CFG["raio_max"]], axis=1))
-
     geoms = blds.geometry.to_numpy()
-    r_idx, b_idx = STRtree(geoms).query(raios, predicate="intersects")
+    tree = STRtree(geoms)
+    nomes = a[["addr_key", "endereco"]].reset_index(drop=True)
+    tam = max(1, int(CFG.get("chunk_enderecos", 2000)))
+
+    parts_todos: list[pd.DataFrame] = []
+    parts_hits: list[pd.DataFrame] = []
+    parts_raios = []       # geometrias dos raios (só para debug)
+    parts_meta = []        # meta_raios (só para debug)
+    parts_hits_todos = []  # camada debug de interseções
+    parts_hits_esc = []    # camada debug de hits escolhidos
+    ray_offset = 0
+    total_inter = 0
+    for ini in range(0, len(ai), tam):
+        fatia = slice(ini, min(ini + tam, len(ai)))
+        ai_c, p_c, n_c, amb_c = ai[fatia], p[fatia], n[fatia], amb[fatia]
+        origens, dirs, addr, w, lado, angulos = [], [], [], [], [], []
+        for sinal in (1, -1):
+            sel = np.ones(len(ai_c), bool) if sinal == 1 else amb_c  # lado oposto só se ambíguo
+            for k, th in enumerate(ang):
+                c, s = np.cos(th), np.sin(th)
+                d = sinal * np.column_stack([n_c[:, 0] * c - n_c[:, 1] * s, n_c[:, 0] * s + n_c[:, 1] * c])
+                origens.append(p_c[sel]); dirs.append(d[sel]); addr.append(ai_c[sel])
+                w.append(np.full(sel.sum(), peso_ang[k] * (1.0 if sinal == 1 else 0.5)))
+                lado.append(np.full(sel.sum(), sinal))
+                angulos.append(np.full(sel.sum(), ang_deg[k]))
+        o, d = np.vstack(origens), np.vstack(dirs)
+        addr, w = np.concatenate(addr), np.concatenate(w)
+        lado, angulos = np.concatenate(lado), np.concatenate(angulos)
+        raios = shapely.linestrings(np.stack([o, o + d * CFG["raio_max"]], axis=1))
+
+        if debug is not None:
+            meta_raios = pd.DataFrame({
+                "ray": np.arange(ray_offset, ray_offset + len(raios)), "addr": addr, "side": lado,
+                "angle_deg": angulos, "weight": w,
+                "ox": o[:, 0], "oy": o[:, 1], "dx": d[:, 0], "dy": d[:, 1],
+            })
+            parts_meta.append(meta_raios.join(nomes, on="addr"))
+            parts_raios.append(raios)
+
+        r_idx, b_idx = tree.query(raios, predicate="intersects")
+        ray_offset += len(raios)
+
+        if len(r_idx) == 0:
+            continue
+
+        inter = shapely.intersection(raios[r_idx], geoms[b_idx])
+        dist = shapely.distance(shapely.points(o[r_idx]), inter)
+        todos = pd.DataFrame({"ray": r_idx, "bld": b_idx, "dist": dist})
+        todos["addr"] = addr[todos["ray"].to_numpy()]
+        todos["score"] = w[todos["ray"].to_numpy()] * np.exp(-todos["dist"] / CFG["decaimento"])
+        todos["bld_id"] = blds["id"].to_numpy()[todos["bld"].to_numpy()] if "id" in blds else ""
+        todos["centro"] = w[todos["ray"].to_numpy()] >= 0.99
+        total_inter += len(todos)
+
+        hits = todos.loc[todos.groupby("ray")["dist"].idxmin()].copy()   # primeira edificação = oclusão
+        r = hits["ray"].to_numpy()
+        hits["dx"], hits["dy"], hits["ox"], hits["oy"] = d[r, 0], d[r, 1], o[r, 0], o[r, 1]
+        hits["centro"] = (w[r] >= 0.99)
+
+        if debug is not None:
+            parts_hits_todos.append(gpd.GeoDataFrame(
+                todos.join(nomes, on="addr"), geometry=inter, crs=crs))
+            # geometria do hit escolhido: segmento do ponto de origem até a interseção
+            ponto_hit = shapely.line_interpolate_point(
+                raios[r], shapely.distance(shapely.points(o[r]), inter[np.asarray(hits.index)]))
+            linha = shapely.linestrings(np.stack([o[r], shapely.get_coordinates(ponto_hit)], axis=1))
+            parts_hits_esc.append(gpd.GeoDataFrame(
+                hits.join(nomes, on="addr").reset_index(drop=True), geometry=linha, crs=crs))
+
+        # índices de raio passam a ser globais (chunk concatenado)
+        todos = todos.copy()
+        todos["ray"] += ray_offset - len(raios)
+        hits = hits.copy()
+        hits["ray"] += ray_offset - len(raios)
+        parts_todos.append(todos)
+        parts_hits.append(hits)
 
     if debug is not None:
-        meta_raios = pd.DataFrame({
-            "ray": np.arange(len(raios)), "addr": addr, "side": lado,
-            "angle_deg": angulos, "weight": w,
-            "ox": o[:, 0], "oy": o[:, 1], "dx": d[:, 0], "dy": d[:, 1],
-        })
-        # índice do endereço -> chave/endereço legível
-        nomes = a[["addr_key", "endereco"]].reset_index(drop=True)
-        meta_raios = meta_raios.join(nomes, on="addr")
-        debug.layer("raios", gpd.GeoDataFrame(meta_raios, geometry=raios, crs=crs))
-        debug.etapa("raios", raios=len(raios), enderecos=len(ai),
-                    ambiguos_com_raio_duplo=int(amb.sum()))
-
-    if len(r_idx) == 0:
-        if debug is not None:
+        if parts_raios:
+            raios_todos = np.concatenate(parts_raios)
+            debug.layer("raios", gpd.GeoDataFrame(
+                pd.concat(parts_meta, ignore_index=True), geometry=raios_todos, crs=crs))
+        else:
+            debug.layer("raios", gpd.GeoDataFrame(geometry=[], crs=crs))
+        if parts_hits_todos:
+            debug.layer("hits_todos", pd.concat(parts_hits_todos, ignore_index=True))
+        else:
             debug.layer("hits_todos", gpd.GeoDataFrame(
                 {"ray": [], "bld": [], "dist": []}, geometry=[], crs=crs))
+        if parts_hits_esc:
+            debug.layer("hits_escolhidos", pd.concat(parts_hits_esc, ignore_index=True))
+        else:
             debug.layer("hits_escolhidos", gpd.GeoDataFrame(
                 {"ray": [], "bld": [], "dist": []}, geometry=[], crs=crs))
-            debug.etapa("hits", raios=0, intersecoes=0, escolhidos=0)
-        return vazio, raios
-
-    inter = shapely.intersection(raios[r_idx], geoms[b_idx])
-    dist = shapely.distance(shapely.points(o[r_idx]), inter)
-    todos = pd.DataFrame({"ray": r_idx, "bld": b_idx, "dist": dist})
-    todos["addr"] = addr[todos["ray"].to_numpy()]
-    todos["score"] = w[todos["ray"].to_numpy()] * np.exp(-todos["dist"] / CFG["decaimento"])
-    todos["bld_id"] = blds["id"].to_numpy()[todos["bld"].to_numpy()] if "id" in blds else ""
-    todos["centro"] = w[todos["ray"].to_numpy()] >= 0.99
-
-    if debug is not None:
-        nomes_hit = a[["addr_key", "endereco"]].reset_index(drop=True)
-        gdf_todos = gpd.GeoDataFrame(
-            todos.join(nomes_hit, on="addr"), geometry=inter, crs=crs)
-        debug.layer("hits_todos", gdf_todos)
-
-    hits = todos.loc[todos.groupby("ray")["dist"].idxmin()].copy()   # primeira edificação = oclusão
-    r = hits["ray"].to_numpy()
-    hits["dx"], hits["dy"], hits["ox"], hits["oy"] = d[r, 0], d[r, 1], o[r, 0], o[r, 1]
-    hits["centro"] = (w[r] >= 0.99)
-
-    if debug is not None:
-        nomes_hit = a[["addr_key", "endereco"]].reset_index(drop=True)
-        # geometria do hit escolhido: segmento do ponto de origem até a interseção
-        ponto_hit = shapely.line_interpolate_point(
-            raios[r], shapely.distance(shapely.points(o[r]), inter[np.asarray(hits.index)]))
-        linha = shapely.linestrings(np.stack([o[r], shapely.get_coordinates(ponto_hit)], axis=1))
-        debug.layer("hits_escolhidos", gpd.GeoDataFrame(
-            hits.join(nomes_hit, on="addr").reset_index(drop=True),
-            geometry=linha, crs=crs))
-        debug.etapa("hits", raios=len(raios), intersecoes=len(todos),
-                    escolhidos=len(hits), enderecos_com_hit=int(hits["addr"].nunique()))
-    return hits, raios
+        debug.etapa("raios", raios=ray_offset, enderecos=len(ai),
+                    ambiguos_com_raio_duplo=int(amb.sum()), chunks=max(1, (len(ai) + tam - 1) // tam))
+        hits_total = pd.concat(parts_hits, ignore_index=True) if parts_hits else pd.DataFrame()
+        debug.etapa("hits", raios=ray_offset, intersecoes=total_inter,
+                    escolhidos=len(hits_total),
+                    enderecos_com_hit=int(hits_total["addr"].nunique()) if len(hits_total) else 0)
+    if not parts_hits:
+        return vazio, (np.concatenate(parts_raios) if parts_raios else np.array([]))
+    return pd.concat(parts_hits, ignore_index=True), (np.concatenate(parts_raios) if parts_raios else np.array([]))
 
 
 # ---------------------------------------------------------------- atribuição
