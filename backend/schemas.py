@@ -65,15 +65,15 @@ class StatsResponse(BaseModel):
 class UserCreate(BaseModel):
     """Cadastro: nome, e-mail e senha (6–72 caracteres; teto do bcrypt)."""
 
-    nome: str = Field(min_length=2, max_length=128)
-    email: str = Field(min_length=3, max_length=255)
+    nome: str = Field(min_length=2, max_length=100)
+    email: str = Field(min_length=3, max_length=100)
     senha: str = Field(min_length=6, max_length=72)
 
 
 class UserLogin(BaseModel):
     """Login: e-mail + senha."""
 
-    email: str = Field(min_length=3, max_length=255)
+    email: str = Field(min_length=3, max_length=100)
     senha: str = Field(min_length=1, max_length=72)
 
 

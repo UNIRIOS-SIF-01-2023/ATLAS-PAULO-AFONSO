@@ -72,10 +72,20 @@ function sameCounts(a: Record<string, number>, b: Record<string, number>) {
   return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key]);
 }
 
+// shortcut: 503/502/504 só tenta de novo, sem checar se é cold start do
+// Render de fato; se a API cair por outro motivo, essas respostas também
+// entram no retry. Upgrade: inspecionar Retry-After quando o backend mandar.
+const RETRYABLE_STATUS = new Set([502, 503, 504]);
+
 async function fetchJson(url: string, signal?: AbortSignal): Promise<any> {
-  const response = await fetch(url, { signal, headers: { ...authHeaders() } });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json();
+  for (let attempt = 0; ; attempt++) {
+    const response = await fetch(url, { signal, headers: { ...authHeaders() } });
+    if (response.ok) return response.json();
+    if (!RETRYABLE_STATUS.has(response.status) || attempt >= 4) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt));
+  }
 }
 
 /** Centro da caixa envolvente de uma geometria GeoJSON. */

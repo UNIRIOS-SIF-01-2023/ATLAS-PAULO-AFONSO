@@ -30,12 +30,6 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Garante a tabela `users` na subida; sem banco, só avisa no log
-    (os testes de integração já pulam sozinhos nesse caso)."""
-    try:
-        auth.ensure_auth_schema()
-    except Exception:
-        logger.warning("tabela users não garantida (banco fora do ar?)", exc_info=True)
     yield
 
 
@@ -253,10 +247,6 @@ def list_buildings(
         default=False,
         description="Só campos de renderização (tipo, fonte, num_pavimentos)",
     ),
-    em_cobertura: bool = Query(
-        default=False,
-        description="Esconde bolinhas fora da janela com polígonos",
-    ),
     limit: int | None = Query(default=None, ge=1, le=db.MAX_LIMIT),
     offset: int = Query(default=0, ge=0),
     after_id: str | None = Query(default=None),
@@ -279,7 +269,6 @@ def list_buildings(
         limit=limit,
         offset=offset,
         after_id=after_id,
-        em_cobertura=em_cobertura,
     )
     body = {
         "type": "FeatureCollection",
@@ -490,7 +479,6 @@ def get_stats(
     bairro: list[str] | None = Query(default=None),
     tipo: str | None = None,
     fonte: str | None = None,
-    em_cobertura: bool = Query(default=False),
     usuario: dict = Depends(auth.get_current_user),
 ):
     """Agregados (total, por tipo/bairro, áreas) com os mesmos filtros."""
@@ -499,8 +487,7 @@ def get_stats(
     except ValueError:
         raise HTTPException(status_code=422, detail="bbox inválido")
     return JSONResponse(content=db.fetch_stats(
-        bbox=parsed_bbox, bairros=bairro, tipo=tipo, fonte=fonte,
-        em_cobertura=em_cobertura))
+        bbox=parsed_bbox, bairros=bairro, tipo=tipo, fonte=fonte))
 
 
 @app.get("/api/buildings/{building_id}")

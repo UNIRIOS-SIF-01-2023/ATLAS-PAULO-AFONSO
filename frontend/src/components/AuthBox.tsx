@@ -93,7 +93,7 @@ export function AuthBox({ apiUrl, user, onAuth, onLogout }: Props) {
             onChange={(e) => setNome(e.target.value)}
             required
             minLength={2}
-            maxLength={128}
+            maxLength={100}
           />
         )}
         <input

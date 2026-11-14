@@ -8,32 +8,47 @@ from contextlib import contextmanager
 import pymysql
 import shapely
 
-from .config import DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, DB_SSL_CA
+from .config import DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, DB_SSL_CA, SRID
 
-# Identifica footprints iguais (vários endereços no mesmo prédio). O hash do
-# WKB sai quase de graça no banco; o do GeoJSON custava mais que a consulta.
-GEOMETRY_KEY = "SHA1(ST_AsBinary(geom)) AS geometry_key"
+FROM_EDIFICACOES = (
+    "FROM EDIFICACOES E JOIN FONTES F ON F.ID = E.FONTE_ID "
+    "LEFT JOIN BAIRROS B ON B.ID = E.BAIRRO_ID"
+)
+
+# Endereço/estabelecimento exibidos: o primeiro endereço associado ao prédio.
+_DO_PRIMEIRO_ENDERECO = (
+    "(SELECT EN.{col} FROM ENDERECO_EDIFICACAO EE "
+    "JOIN ENDERECOS EN ON EN.ID = EE.ENDERECO_ID "
+    "WHERE EE.EDIFICACAO_ID = E.ID AND EN.{col} IS NOT NULL "
+    "ORDER BY EN.ID LIMIT 1)"
+)
+
+# Identifica o footprint. Cada EDIFICACAO já é única (medido: 55.255 linhas,
+# 55.255 geometrias distintas), então o ID basta e evita SHA1 por linha.
+GEOMETRY_KEY = "CAST(E.ID AS CHAR) AS geometry_key"
 
 SELECT_FIELDS = (
-    f"id, ST_AsGeoJSON(geom), {GEOMETRY_KEY}, area_m2, tipo, endereco, "
-    "bairro, estabelecimento, num_pavimentos, fonte"
+    f"CAST(E.ID AS CHAR) AS id, ST_AsGeoJSON(E.GEOM) AS geojson, {GEOMETRY_KEY}, "
+    "CAST(E.AREA_M2 AS DOUBLE) AS area_m2, E.TIPO_USO AS tipo, "
+    f"{_DO_PRIMEIRO_ENDERECO.format(col='LOGRADOURO_NUM')} AS endereco, "
+    "B.NOME AS bairro, "
+    f"{_DO_PRIMEIRO_ENDERECO.format(col='ESTABELECIMENTO')} AS estabelecimento, "
+    "E.NUM_PAVIMENTOS AS num_pavimentos, F.NOME AS fonte"
 )
 
 SELECT_LIGHT_FIELDS = (
-    f"id, ST_AsGeoJSON(geom), {GEOMETRY_KEY}, tipo, fonte, num_pavimentos"
+    f"CAST(E.ID AS CHAR) AS id, ST_AsGeoJSON(E.GEOM) AS geojson, {GEOMETRY_KEY}, "
+    "E.TIPO_USO AS tipo, F.NOME AS fonte, E.NUM_PAVIMENTOS AS num_pavimentos"
 )
 
 # WKB é bem mais barato de transferir e decodificar que GeoJSON.
 TILE_FIELDS = (
-    f"id, ST_AsBinary(geom) AS wkb, {GEOMETRY_KEY}, tipo, fonte, num_pavimentos, area_m2"
+    f"CAST(E.ID AS CHAR) AS id, ST_AsBinary(E.GEOM) AS wkb, {GEOMETRY_KEY}, "
+    "E.TIPO_USO AS tipo, F.NOME AS fonte, E.NUM_PAVIMENTOS AS num_pavimentos, "
+    "CAST(E.AREA_M2 AS DOUBLE) AS area_m2"
 )
 
 MAX_LIMIT = 20000
-
-# Cobertura com polígonos: todo o município (Overture janela + arquivo
-# município, recortados no contorno). Fora dela só existem bolinhas.
-# Quando as fontes mudarem, atualize aqui.
-JANELA_COBERTURA = (-38.5489, -9.7125, -37.9996, -9.3529)
 
 
 def parse_bbox(raw):
@@ -59,13 +74,12 @@ def parse_bbox(raw):
     return (min_lng, min_lat, max_lng, max_lat)
 
 
-def build_where(bbox=None, bairros=None, tipo=None, fonte=None,
-                em_cobertura=False):
+def build_where(bbox=None, bairros=None, tipo=None, fonte=None):
     """Monta (cláusula WHERE, params) a partir dos filtros opcionais.
 
     O filtro espacial usa MBRIntersects para aproveitar o SPATIAL INDEX.
-    `em_cobertura=True` esconde as bolinhas fora da janela com polígonos
-    (elas continuam no banco). Sem filtros retorna ("", []).
+    O WKT vem em lon/lat; o SRID 4674 é lat/lon por padrão, daí o axis-order.
+    Sem filtros retorna ("", []).
     """
     clauses = []
     params = []
@@ -76,51 +90,44 @@ def build_where(bbox=None, bairros=None, tipo=None, fonte=None,
             f"{max_lng} {max_lat},{min_lng} {max_lat},"
             f"{min_lng} {min_lat}))"
         )
-        clauses.append("MBRIntersects(geom, ST_GeomFromText(%s))")
+        clauses.append(
+            "MBRIntersects(E.GEOM, ST_GeomFromText(%s, "
+            f"{SRID}, 'axis-order=long-lat'))")
         params.append(wkt)
     if bairros:
         sem_bairro = "Não informado" in bairros
         bairros_validos = [b for b in bairros if b != "Não informado"]
         bairro_clauses = []
         if bairros_validos:
-            bairro_clauses.append(f"bairro IN ({','.join(['%s'] * len(bairros_validos))})")
+            bairro_clauses.append(f"B.NOME IN ({','.join(['%s'] * len(bairros_validos))})")
             params.extend(bairros_validos)
         if sem_bairro:
-            bairro_clauses.append("(bairro IS NULL OR bairro = '' OR bairro = %s)")
+            bairro_clauses.append("(B.NOME IS NULL OR B.NOME = '' OR B.NOME = %s)")
             params.append("Não informado")
         clauses.append("(" + " OR ".join(bairro_clauses) + ")")
     if tipo:
-        clauses.append("tipo = %s")
+        clauses.append("E.TIPO_USO = %s")
         params.append(tipo)
     if fonte:
-        clauses.append("fonte = %s")
+        clauses.append("F.NOME = %s")
         params.append(fonte)
-    if em_cobertura:
-        min_lng, min_lat, max_lng, max_lat = JANELA_COBERTURA
-        wkt = (
-            f"POLYGON(({min_lng} {min_lat},{max_lng} {min_lat},"
-            f"{max_lng} {max_lat},{min_lng} {max_lat},"
-            f"{min_lng} {min_lat}))"
-        )
-        clauses.append("(fonte != %s OR MBRIntersects(geom, ST_GeomFromText(%s)))")
-        params.extend(["QG/CNEFE", wkt])
     if not clauses:
         return ("", [])
     return ("WHERE " + " AND ".join(clauses), params)
 
 
-def connect():
+def connect(database=DB_NAME, autocommit=True):
     kwargs = dict(
         host=DB_HOST,
         port=DB_PORT,
         user=DB_USER,
         password=DB_PASSWORD,
-        database=DB_NAME,
+        database=database,
         charset="utf8mb4",
         cursorclass=pymysql.cursors.DictCursor,
         # Sem transação aberta entre pedidos: uma conexão reaproveitada
         # precisa enxergar uma reimportação feita depois.
-        autocommit=True,
+        autocommit=autocommit,
     )
     if DB_SSL_CA:
         kwargs["ssl"] = {"ca": DB_SSL_CA}
@@ -158,7 +165,7 @@ def close_idle_connections():
 
 
 def row_to_feature(row):
-    geometry = json.loads(row["ST_AsGeoJSON(geom)"])
+    geometry = json.loads(row["geojson"])
     properties = {k: row[k] for k in (
         "id", "area_m2", "tipo", "endereco", "bairro",
         "estabelecimento", "num_pavimentos", "fonte",
@@ -175,7 +182,7 @@ def row_to_feature(row):
 
 def row_to_light_feature(row):
     """Feature mínima para renderizar o mapa (cor, filtro, 3D)."""
-    geometry = json.loads(row["ST_AsGeoJSON(geom)"])
+    geometry = json.loads(row["geojson"])
     return {
         "type": "Feature",
         "id": row["id"],
@@ -191,18 +198,16 @@ def row_to_light_feature(row):
 
 
 def fetch_all_buildings(bbox=None, bairros=None, tipo=None, fonte=None,
-                         light=False, limit=None, offset=0, after_id=None,
-                         em_cobertura=False):
+                         light=False, limit=None, offset=0, after_id=None):
     with connection() as conn, conn.cursor() as cur:
         fields = SELECT_LIGHT_FIELDS if light else SELECT_FIELDS
         converter = row_to_light_feature if light else row_to_feature
         where, params = build_where(
-            bbox=bbox, bairros=bairros, tipo=tipo, fonte=fonte,
-            em_cobertura=em_cobertura)
+            bbox=bbox, bairros=bairros, tipo=tipo, fonte=fonte)
         if after_id is not None:
-            where += (" AND " if where else "WHERE ") + "id > %s"
-            params.append(after_id)
-        sql = f"SELECT {fields} FROM buildings {where} ORDER BY id".rstrip()
+            where += (" AND " if where else "WHERE ") + "E.ID > %s"
+            params.append(int(after_id))
+        sql = f"SELECT {fields} {FROM_EDIFICACOES} {where} ORDER BY E.ID"
         if limit is not None:
             sql += " LIMIT %s"
             params.append(int(limit))
@@ -213,8 +218,16 @@ def fetch_all_buildings(bbox=None, bairros=None, tipo=None, fonte=None,
         return [converter(r) for r in cur.fetchall()]
 
 
-SEARCH_FIELDS = ("endereco", "estabelecimento", "bairro")
+SEARCH_FIELDS = ("EN.LOGRADOURO_NUM", "EN.ESTABELECIMENTO", "B.NOME")
 MAX_SEARCH_TERMS = 6
+
+FROM_SEARCH = (
+    "FROM EDIFICACOES E "
+    "JOIN FONTES F ON F.ID = E.FONTE_ID "
+    "LEFT JOIN BAIRROS B ON B.ID = E.BAIRRO_ID "
+    "LEFT JOIN ENDERECO_EDIFICACAO EE ON EE.EDIFICACAO_ID = E.ID "
+    "LEFT JOIN ENDERECOS EN ON EN.ID = EE.ENDERECO_ID"
+)
 
 
 def _like_escape(term):
@@ -241,12 +254,13 @@ def search(query, limit=8):
     prefix = f"{_like_escape(query.strip())}%"
     with connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT id, endereco, bairro, estabelecimento, tipo, "
-            "ST_X(ST_Centroid(geom)) AS lng, ST_Y(ST_Centroid(geom)) AS lat "
-            f"FROM buildings WHERE {where} "
-            "AND (endereco IS NOT NULL OR estabelecimento IS NOT NULL) "
+            "SELECT CAST(E.ID AS CHAR) AS id, EN.LOGRADOURO_NUM AS endereco, "
+            "B.NOME AS bairro, EN.ESTABELECIMENTO AS estabelecimento, E.TIPO_USO AS tipo, "
+            "ST_X(ST_Centroid(ST_SRID(E.GEOM, 0))) AS lng, ST_Y(ST_Centroid(ST_SRID(E.GEOM, 0))) AS lat "
+            f"{FROM_SEARCH} WHERE {where} "
+            "AND (EN.LOGRADOURO_NUM IS NOT NULL OR EN.ESTABELECIMENTO IS NOT NULL) "
             # Quem começa com o texto digitado vem primeiro.
-            "ORDER BY (estabelecimento LIKE %s OR endereco LIKE %s) DESC, endereco "
+            "ORDER BY (EN.ESTABELECIMENTO LIKE %s OR EN.LOGRADOURO_NUM LIKE %s) DESC, EN.LOGRADOURO_NUM "
             "LIMIT %s",
             [*params, prefix, prefix, int(limit)],
         )
@@ -257,11 +271,11 @@ def search(query, limit=8):
         ]
         terms = query.split()[:MAX_SEARCH_TERMS]
         cur.execute(
-            "SELECT bairro, COUNT(*) AS total, "
-            "AVG(ST_X(ST_Centroid(geom))) AS lng, AVG(ST_Y(ST_Centroid(geom))) AS lat "
-            "FROM buildings WHERE "
-            + " AND ".join(["bairro LIKE %s"] * len(terms))
-            + " GROUP BY bairro ORDER BY total DESC LIMIT 4",
+            "SELECT B.NOME AS bairro, COUNT(*) AS total, "
+            "AVG(ST_X(ST_Centroid(ST_SRID(E.GEOM, 0)))) AS lng, AVG(ST_Y(ST_Centroid(ST_SRID(E.GEOM, 0)))) AS lat "
+            f"{FROM_EDIFICACOES} WHERE "
+            + " AND ".join(["B.NOME LIKE %s"] * len(terms))
+            + " GROUP BY B.NOME ORDER BY total DESC LIMIT 4",
             [f"%{_like_escape(t)}%" for t in terms],
         )
         bairros = [
@@ -273,35 +287,38 @@ def search(query, limit=8):
 
 
 def fetch_building_addresses(building_id):
-    """Todos os endereços que dividem o footprint deste prédio."""
+    """Todos os endereços associados a este prédio."""
     with connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT o.id, o.endereco, o.estabelecimento, o.tipo FROM buildings t "
-            "JOIN buildings o ON MBRIntersects(o.geom, t.geom) AND ST_Equals(o.geom, t.geom) "
-            "WHERE t.id = %s ORDER BY o.endereco, o.id LIMIT 100",
-            (building_id,),
+            "SELECT CAST(EN.ID AS CHAR) AS id, EN.LOGRADOURO_NUM AS endereco, "
+            "EN.ESTABELECIMENTO AS estabelecimento, EN.TIPO_USO AS tipo "
+            "FROM ENDERECO_EDIFICACAO EE "
+            "JOIN ENDERECOS EN ON EN.ID = EE.ENDERECO_ID "
+            "WHERE EE.EDIFICACAO_ID = %s ORDER BY EN.LOGRADOURO_NUM, EN.ID LIMIT 100",
+            (int(building_id),),
         )
         return [{**row, "tipo": row["tipo"] or "desconhecido"} for row in cur.fetchall()]
 
 
 def fetch_data_version():
-    """Muda a cada importação: o import_data.py recria a tabela."""
+    """Muda a cada importação com base no término da última carga concluída."""
     with connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT UNIX_TIMESTAMP(CREATE_TIME) AS created "
-            "FROM information_schema.TABLES "
-            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'buildings'"
+            "SELECT UNIX_TIMESTAMP(CONCLUIDA_EM) AS created "
+            "FROM CARGAS WHERE CONCLUIDA_EM IS NOT NULL "
+            "ORDER BY ID DESC LIMIT 1"
         )
         row = cur.fetchone()
     return str(int(row["created"])) if row and row["created"] is not None else "0"
 
 
 def fetch_centroids():
-    """Um ponto por footprint; endereços no mesmo prédio contam uma vez."""
+    """Um ponto por footprint; defensivamente deduplica por geometry_key."""
     with connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT ST_X(ST_Centroid(geom)) AS x, ST_Y(ST_Centroid(geom)) AS y, "
-            f"tipo, fonte, {GEOMETRY_KEY} FROM buildings ORDER BY id"
+            "SELECT ST_X(ST_Centroid(ST_SRID(E.GEOM, 0))) AS x, ST_Y(ST_Centroid(ST_SRID(E.GEOM, 0))) AS y, "
+            f"E.TIPO_USO AS tipo, F.NOME AS fonte, {GEOMETRY_KEY} "
+            f"{FROM_EDIFICACOES} ORDER BY E.ID"
         )
         rows = cur.fetchall()
     unique = {}
@@ -317,7 +334,7 @@ def fetch_building_tile(bounds, cancelled=None):
         raise CancelledError()
     with connection() as conn, conn.cursor() as cur:
         cur.execute(
-            f"SELECT {TILE_FIELDS} FROM buildings {where} ORDER BY id",
+            f"SELECT {TILE_FIELDS} {FROM_EDIFICACOES} {where} ORDER BY E.ID",
             params,
         )
         rows = cur.fetchall()
@@ -330,7 +347,10 @@ def fetch_building_tile(bounds, cancelled=None):
     for row in rows:
         unique.setdefault(row["geometry_key"], row)
     rows = list(unique.values())
-    geometries = shapely.from_wkb([row["wkb"] for row in rows])
+    # SRID 4674 armazena lat/lon; shapely.from_wkb interpreta x=lat, y=lon.
+    # Invertemos para lon/lat que o MVT e o frontend esperam.
+    raw = shapely.from_wkb([row["wkb"] for row in rows])
+    geometries = shapely.transform(raw, lambda c: c[:, ::-1])
     return [
         {
             "geometry": geometry,
@@ -348,44 +368,43 @@ def fetch_building_tile(bounds, cancelled=None):
     ]
 
 
-def fetch_stats(bbox=None, bairros=None, tipo=None, fonte=None,
-                em_cobertura=False):
+def fetch_stats(bbox=None, bairros=None, tipo=None, fonte=None):
     """Agregados (total, por tipo, por bairro, áreas) com os mesmos filtros."""
     where, params = build_where(
-        bbox=bbox, bairros=bairros, tipo=tipo, fonte=fonte,
-        em_cobertura=em_cobertura)
+        bbox=bbox, bairros=bairros, tipo=tipo, fonte=fonte)
+    base = f"{FROM_EDIFICACOES} {where}"
     with connection() as conn, conn.cursor() as cur:
-        cur.execute(f"SELECT COUNT(*) AS n FROM buildings {where}".rstrip(),
-                    params)
-        total = cur.fetchone()["n"] or 0
+        cur.execute(
+            "SELECT COUNT(*) AS n, CAST(SUM(E.AREA_M2) AS DOUBLE) AS total, "
+            f"CAST(AVG(E.AREA_M2) AS DOUBLE) AS media {base}", params)
+        totais = cur.fetchone()
 
         cur.execute(
-            f"SELECT tipo, COUNT(*) AS n FROM buildings {where} GROUP BY tipo",
+            f"SELECT E.TIPO_USO AS tipo, COUNT(*) AS n {base} GROUP BY E.TIPO_USO",
             params)
         by_tipo = {(r["tipo"] or "desconhecido"): r["n"] for r in cur.fetchall()}
 
         cur.execute(
-            f"SELECT bairro, COUNT(*) AS n FROM buildings {where} GROUP BY bairro",
+            f"SELECT B.NOME AS bairro, COUNT(*) AS n {base} GROUP BY B.NOME",
             params)
         by_bairro = {(r["bairro"] or "Não informado"): r["n"]
                       for r in cur.fetchall()}
 
-        cur.execute(
-            f"SELECT SUM(area_m2) AS total, AVG(area_m2) AS media "
-            f"FROM buildings {where}".rstrip(), params)
-        areas = cur.fetchone()
         return {
-            "total": total,
+            "total": totais["n"] or 0,
             "by_tipo": by_tipo,
             "by_bairro": by_bairro,
-            "area_total_m2": areas["total"],
-            "area_media_m2": (float(areas["media"])
-                              if areas["media"] is not None else None),
+            "area_total_m2": totais["total"],
+            "area_media_m2": totais["media"],
         }
 
 
 def fetch_building(building_id: str):
+    if not building_id.isdigit():  # ID é inteiro; evita cast implícito do MySQL
+        return None
     with connection() as conn, conn.cursor() as cur:
-        cur.execute(f"SELECT {SELECT_FIELDS} FROM buildings WHERE id = %s", (building_id,))
+        cur.execute(
+            f"SELECT {SELECT_FIELDS} {FROM_EDIFICACOES} WHERE E.ID = %s",
+            (int(building_id),))
         row = cur.fetchone()
         return row_to_feature(row) if row else None

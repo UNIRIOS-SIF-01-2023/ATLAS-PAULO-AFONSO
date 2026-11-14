@@ -1,11 +1,11 @@
 """Cadastro e login com JWT (padrão Bearer).
 
 Responsabilidades deste módulo:
-- garantir a tabela `users` (ensure_auth_schema, na subida da API);
 - transformar senha em hash bcrypt (a senha nunca é gravada nem devolvida);
-- persistência e consulta de usuários (create_user, authenticate);
+- persistência e consulta de usuários na tabela USUARIOS (create_user, authenticate);
 - emitir e validar tokens JWT (create_token, get_current_user).
 
+A tabela USUARIOS é criada à mão em cada banco (não entra na promoção do stage).
 Tudo passa por consultas parametrizadas, no padrão de db.py.
 Fora do escopo: recuperação de senha e bloqueio por tentativas.
 """
@@ -21,25 +21,11 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from . import db
 from .config import JWT_ALGORITHM, JWT_EXPIRE_MINUTES, JWT_SECRET
 
-USERS_SCHEMA = """
-CREATE TABLE IF NOT EXISTS users (
-    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    nome VARCHAR(128) NOT NULL,
-    email VARCHAR(255) NOT NULL UNIQUE,
-    senha_hash VARCHAR(255) NOT NULL,
-    criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-"""
+_CAMPOS = "ID, NOME, EMAIL, CRIADO_EM"
 
 
 class EmailEmUso(ValueError):
     """Cadastro com e-mail que já existe na tabela."""
-
-
-def ensure_auth_schema():
-    """Cria a tabela `users` se ela ainda não existir. Idempotente."""
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(USERS_SCHEMA)
 
 
 def hash_senha(senha: str) -> str:
@@ -58,10 +44,10 @@ def confere_senha(senha: str, senha_hash: str) -> bool:
 def _publico(row):
     """Linha do banco → dados públicos (sem nenhum vestígio da senha)."""
     return {
-        "id": row["id"],
-        "nome": row["nome"],
-        "email": row["email"],
-        "criado_em": row["criado_em"],
+        "id": row["ID"],
+        "nome": row["NOME"],
+        "email": row["EMAIL"],
+        "criado_em": row["CRIADO_EM"],
     }
 
 
@@ -71,33 +57,40 @@ def create_user(nome: str, email: str, senha: str):
     try:
         with db.connection() as conn, conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO users (nome, email, senha_hash) VALUES (%s, %s, %s)",
+                "INSERT INTO USUARIOS (NOME, EMAIL, SENHA) VALUES (%s, %s, %s)",
                 (nome.strip(), email, hash_senha(senha)),
             )
-            user_id = cur.lastrowid
             cur.execute(
-                "SELECT id, nome, email, criado_em FROM users WHERE id = %s",
-                (user_id,),
+                f"SELECT {_CAMPOS} FROM USUARIOS WHERE ID = %s", (cur.lastrowid,)
             )
             return _publico(cur.fetchone())
     except pymysql.err.IntegrityError as e:
-        if e.args and e.args[0] == 1062:  # Duplicate entry (email UNIQUE)
+        if e.args and e.args[0] == 1062:  # Duplicate entry (EMAIL UNIQUE)
             raise EmailEmUso(email) from e
         raise
 
 
 def authenticate(email: str, senha: str):
-    """Devolve os dados públicos se e-mail + senha conferem, senão None."""
+    """Dados públicos se e-mail + senha conferem e o usuário está ativo, senão None."""
     with db.connection() as conn, conn.cursor() as cur:
         cur.execute(
-            "SELECT id, nome, email, senha_hash, criado_em FROM users "
-            "WHERE email = %s",
+            f"SELECT {_CAMPOS}, SENHA FROM USUARIOS WHERE EMAIL = %s AND ATIVO",
             (email.strip().lower(),),
         )
         row = cur.fetchone()
-    if row is None or not confere_senha(senha, row["senha_hash"]):
+    if row is None or not confere_senha(senha, row["SENHA"]):
         return None
     return _publico(row)
+
+
+def find_user_by_id(user_id: int):
+    """Dados públicos do usuário ativo, ou None se não existir mais / inativo."""
+    with db.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            f"SELECT {_CAMPOS} FROM USUARIOS WHERE ID = %s AND ATIVO", (user_id,)
+        )
+        row = cur.fetchone()
+    return _publico(row) if row is not None else None
 
 
 def create_token(user_id: int) -> str:
@@ -108,17 +101,6 @@ def create_token(user_id: int) -> str:
         JWT_SECRET,
         algorithm=JWT_ALGORITHM,
     )
-
-
-def find_user_by_id(user_id: int):
-    """Dados públicos do usuário, ou None se não existir mais."""
-    with db.connection() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT id, nome, email, criado_em FROM users WHERE id = %s",
-            (user_id,),
-        )
-        row = cur.fetchone()
-    return _publico(row) if row is not None else None
 
 
 bearer = HTTPBearer(auto_error=True)

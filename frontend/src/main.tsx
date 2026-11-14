@@ -1,7 +1,9 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { config as maplibreConfig } from 'maplibre-gl'
-import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
+// `?worker&url` empacota o worker junto com o `maplibre-gl-shared.mjs` que
+// ele importa; com `?url` o shared não ia pro build e o worker falhava.
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import './index.css'
 import App from './App.tsx'
 

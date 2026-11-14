@@ -1,6 +1,6 @@
 """Testes essenciais (P6): só pontos críticos, sem cobertura completa.
 
-Roda com: ./.venv/bin/python -m pytest backend/tests -q
+Roda com: doppler run -- python -m pytest backend/tests -q
 (dependências de dev: pytest, httpx)
 """
 
@@ -45,7 +45,7 @@ def test_build_where_vazio():
 
 def test_build_where_bbox_usa_indice_espacial():
     clause, params = db.build_where(bbox=(-38.24, -9.41, -38.21, -9.39))
-    assert "MBRIntersects(geom, ST_GeomFromText(%s))" in clause
+    assert "MBRIntersects(E.GEOM, ST_GeomFromText(%s, 4674" in clause
     assert params[0].startswith("POLYGON((")
 
 
@@ -63,14 +63,14 @@ def test_build_where_combina_tudo_na_ordem():
 
 def test_build_where_apenas_bairro():
     clause, params = db.build_where(bairros=["CENTRO"])
-    assert clause == "WHERE (bairro IN (%s))"
+    assert clause == "WHERE (B.NOME IN (%s))"
     assert params == ["CENTRO"]
 
 
 # --- P3: conversão para GeoJSON ---------------------------------------------
 
 def _row(full=True):
-    base = {"ST_AsGeoJSON(geom)": '{"type":"Point","coordinates":[-38.2,-9.4]}',
+    base = {"geojson": '{"type":"Point","coordinates":[-38.2,-9.4]}',
             "geometry_key": "k1"}
     if full:
         base.update({
@@ -107,7 +107,6 @@ def test_stats_schema():
     assert s.total == 10
 
 
-# --- Classificação best_type (regra de domínio do ETL) ----------------------
 
 def test_best_type_qg_prevalece():
     import import_data
@@ -117,6 +116,46 @@ def test_best_type_qg_prevalece():
     assert import_data.best_type({}, {"class": "church"}) == "religioso"
     assert import_data.best_type({}, {}) == "desconhecido"
     assert import_data.best_type(None, None) == "desconhecido"
+
+
+def test_classify_origem_tipo():
+    import import_data
+    assert import_data.classify({"COD_ESPECIE": "1"}, None) == ("residencial", "cnefe")
+    assert import_data.classify({}, {"subtype": "civic"})[1] == "overture_subtype"
+    assert import_data.classify({}, {"class": "house"})[1] == "overture_class"
+    assert import_data.classify(None, None) == ("desconhecido", "sem_dado")
+
+
+def test_match_points_metodo_e_distancia():
+    import import_data
+    from shapely.geometry import box
+    polys = [box(0, 0, 0.001, 0.001)]
+    pts = [{"geometry": {"coordinates": c}}
+           for c in ([0.0005, 0.0005], [0.0011, 0.0005], [0.01, 0.01])]
+    m = import_data.match_points(polys, pts)
+    assert m[0] == (0, "contido", 0.0)
+    assert m[1][:2] == (0, "tolerancia") and 10 < m[1][2] < 12  # ~11 m
+    assert 2 not in m
+
+
+def test_osm_so_entra_onde_overture_nao_tem_poligono(monkeypatch):
+    import import_data
+    from shapely.geometry import box, mapping
+
+    def feat(fid, g):
+        return {"id": fid, "geometry": mapping(g), "properties": {}}
+    monkeypatch.setattr(import_data, "load_buildings", lambda: [feat("ov", box(0, 0, 0.001, 0.001))])
+    monkeypatch.setattr(import_data, "load_osm_buildings", lambda: [
+        feat("dup", box(0.0002, 0.0002, 0.0008, 0.0008)),  # dentro do Overture
+        feat("novo", box(0.01, 0.01, 0.011, 0.011)),
+    ])
+    monkeypatch.setattr(import_data, "load_qg_points", lambda: [
+        {"geometry": {"coordinates": [0.0005, 0.0005]}, "properties": {}},
+        {"geometry": {"coordinates": [0.0105, 0.0105]}, "properties": {}},
+    ])
+    predios, _, assoc = import_data.montar_predios()
+    assert [p["id_origem"] for p in predios] == ["ov", "osm-1"]
+    assert assoc == {0: (0, "contido", 0.0), 1: (1, "contido", 0.0)}
 
 
 # --- Endpoints principais (db mockado: sem banco) ---------------------------
@@ -472,6 +511,7 @@ def test_integracao_em_cobertura_remove_so_bolinhas_fora():
     assert len(feats) == min(20000, total)  # primeira página cheia: sem furo
 
 
+
 # --- Visão afastada e versão dos dados (db mockado) -------------------------
 
 def test_overview_agrupa_por_celula_e_separa_enderecos():
@@ -659,7 +699,7 @@ def test_busca_exige_cada_palavra_em_algum_campo_e_escapa_curingas():
     where, params = db.build_search_where("  rua 50%_ ")
     assert where.count("(") == 2 and " AND " in where
     assert params[:3] == ["%rua%"] * 3
-    assert params[3:] == ["%50\%\_%"] * 3
+    assert params[3:] == ["%50\\%\\_%"] * 3
     assert db.build_search_where("   ") == ("", [])
 
 
@@ -829,7 +869,7 @@ def test_jwt_guarda_eu_e_as_rotas(monkeypatch):
     from backend import main
 
     _sem_usuario_fake()
-    linha = {"id": 7, "nome": "T", "email": "t@x.com", "criado_em": None}
+    linha = {"ID": 7, "NOME": "T", "EMAIL": "t@x.com", "CRIADO_EM": None}
     monkeypatch.setattr(main.db, "fetch_data_version", lambda: "100")
     monkeypatch.setattr(main, "_version_memo", {"checked": 0.0, "version": None})
     monkeypatch.setattr(main, "_overview_for", lambda v: {"bounds": [0, 0, 1, 1], "cells": []})
@@ -883,7 +923,6 @@ def test_integracao_cadastro_e_login_reais():
     from backend import auth, main
 
     email = f"teste-{uuid.uuid4().hex[:8]}@x.com"
-    auth.ensure_auth_schema()
     user = auth.create_user("Teste", email, "secreta123")
     assert user["email"] == email
     assert auth.authenticate(email, "secreta123")["id"] == user["id"]

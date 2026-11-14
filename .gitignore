@@ -19,7 +19,24 @@ qg_*.json*
 frontend/node_modules/
 frontend/dist/
 
+# Folders
+*.agents/
+
+# Doppler
+.doppler.yaml
+
+# Documentos
+MATEMATICA.md
+
+# Cloudflare Wrangler
+.wrangler/
+
+# Environment files
+.env
+.env.*
 backend/.env
+frontend/.env
+frontend/.env.*
 
 # Saídas locais do CNEFE rooftop (dados derivados, não versionados)
 data/processed/*.gpkg
