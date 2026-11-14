@@ -16,10 +16,14 @@ echo "==> 2/5 Camada rooftop (cnefe_rooftop.py -> algoritmo_raycast)"
 QG="data/raw/qg/qg_810_endereco_Munic2924009.json"
 if [ "${1:-}" = "--rooftop" ] || [ ! -f data/processed/pontos_rooftop.geojson ]; then
   if [ -f "$QG" ]; then
+    EXTRA=""
+    [ -f data/raw/osm/osm_enderecos_paulo_afonso.geojson ] && \
+      EXTRA="--osm-numeros data/raw/osm/osm_enderecos_paulo_afonso.geojson"
     "$PY" cnefe_rooftop.py "$QG" mysql data/processed/pontos_rooftop.gpkg \
       --debug \
       --web-geojson data/processed/pontos_rooftop.geojson \
-      --web-poligonos data/processed/pontos_rooftop_poligonos.geojson
+      --web-poligonos data/processed/pontos_rooftop_poligonos.geojson \
+      $EXTRA
   else
     echo "  (QG do CNEFE ausente em $QG, pulando geração da camada rooftop)"
   fi

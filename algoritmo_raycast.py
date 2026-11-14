@@ -1811,6 +1811,22 @@ def escrever_stats(a, registros_cnefe, path):
     sn = a["sn"].fillna(False).astype(bool) if "sn" in a else pd.Series(False, index=a.index)
     def _int(serie):
         return int(pd.to_numeric(serie, errors="coerce").fillna(False).astype(bool).sum())
+    # Cruzamento por fonte: quantos endereços cada fonte independente
+    # corrobora (concorda) ou contradiz (discorda) o número do CNEFE.
+    colunas_evidencia = ["lote_prefeitura", "osm_numero", "paridade", "porte", "coerencia_especie"]
+    por_fonte = {}
+    for nome in colunas_evidencia:
+        if nome in a:
+            valores = a[nome].astype(str)
+            por_fonte[nome] = {
+                "concorda": int((valores == "concorda").sum()),
+                "discorda": int((valores == "discorda").sum()),
+                "sem_dado": int(~valores.isin(["concorda", "discorda"]).sum()),
+            }
+    corrobora = a.get("n_concordam", pd.Series(0, index=a.index))
+    corrobora = pd.to_numeric(corrobora, errors="coerce").fillna(0)
+    corrobora_1 = corrobora >= 1
+    corrobora_2 = corrobora >= 2
     stats = {
         "registros_cnefe": int(registros_cnefe),
         "enderecos_base": total,
@@ -1829,6 +1845,12 @@ def escrever_stats(a, registros_cnefe, path):
         "confiabilidade_media": round(float(pd.to_numeric(a.get("confiabilidade_pct"), errors="coerce").mean() or 0), 1),
         "concordancias": int(pd.to_numeric(a.get("n_concordam"), errors="coerce").fillna(0).sum()),
         "discordancias": int(pd.to_numeric(a.get("n_discordam"), errors="coerce").fillna(0).sum()),
+        # porcentagem geral do cruzamento: endereços confirmados por >=1 e >=2 fontes
+        "corroborados_1": int(corrobora_1.sum()),
+        "corroborados_1_pct": round(100 * float(corrobora_1.mean() or 0), 1),
+        "corroborados_2": int(corrobora_2.sum()),
+        "corroborados_2_pct": round(100 * float(corrobora_2.mean() or 0), 1),
+        "por_fonte": por_fonte,
     }
     destino = Path(path)
     destino.parent.mkdir(parents=True, exist_ok=True)

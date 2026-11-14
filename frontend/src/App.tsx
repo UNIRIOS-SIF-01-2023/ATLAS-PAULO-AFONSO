@@ -3,6 +3,7 @@ import * as maplibregl from 'maplibre-gl';
 import type { Map as MapLibreMap, MapLayerMouseEvent } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { alturaDoPredio, FONTE_PONTO, TIPOS_ORDEM, type Theme } from './constants';
+import { formatNumber } from './format';
 import {
   addDataLayers,
   addCnefeLayer,
@@ -834,8 +835,23 @@ export default function App() {
           ) : ROOFTOP_ONLY ? (
             <div className="layers">
               <div className="stat-hero">
-                <span className="stat-value">{rooftopMeta?.address_count ?? 0}</span>
-                <span className="stat-caption">pontos rooftop gerados localmente</span>
+                <span className="stat-value">
+                  {rooftopMeta?.stats
+                    ? `${formatNumber(rooftopMeta.stats.taxa_acerto_pct)}%`
+                    : formatNumber(rooftopMeta?.address_count ?? 0)}
+                </span>
+                <span className="stat-caption">
+                  {rooftopMeta?.stats
+                    ? 'de acerto: endereços CNEFE com ponto no prédio'
+                    : 'pontos rooftop gerados localmente'}
+                </span>
+                {rooftopMeta?.stats && (
+                  <p className="muted small" style={{ margin: '4px 0 0' }}>
+                    {formatNumber(rooftopMeta.stats.com_ponto)}/{formatNumber(rooftopMeta.stats.enderecos_base)} endereços com ponto ·{' '}
+                    {formatNumber(rooftopMeta.stats.sem_ponto)} sem prédio ·{' '}
+                    {formatNumber(rooftopMeta.stats.corroborados_1)} confirmados por fonte externa ({formatNumber(rooftopMeta.stats.corroborados_1_pct)}%)
+                  </p>
+                )}
               </div>
               <RooftopControls
                 value={rooftopOptions}

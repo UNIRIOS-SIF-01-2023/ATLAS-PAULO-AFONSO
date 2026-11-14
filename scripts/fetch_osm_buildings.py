@@ -8,7 +8,17 @@ from pathlib import Path
 
 from shapely.geometry import mapping, LineString, Point, Polygon
 
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_URLS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+    "https://overpass.osm.jp/api/interpreter",
+]
+TENTATIVAS_POR_MIRROR = 2
+ESPERA_RETRY_S = 15
+# Fallback se o contorno do município falhar (bbox aproximada de Paulo Afonso/BA,
+# incluindo a ilha na margem esquerda do São Francisco).
+BBOX_FALLBACK = (-38.35, -9.85, -37.85, -9.40)
 MUNICIPIO = "Paulo Afonso"
 ADMIN_LEVEL = "8"
 OUT_DIR = Path("data/raw/osm")
@@ -21,13 +31,23 @@ PAUSA_S = 8
 
 
 def overpass(query: str, timeout: int = 180):
-    data = urllib.parse.urlencode({"data": query}).encode()
-    req = urllib.request.Request(OVERPASS_URL, data=data, method="POST", headers={
-        "User-Agent": "atlas-urbano/0.1 (projeto universitário; contato via repo)",
-        "Accept": "application/json",
-    })
-    with urllib.request.urlopen(req, timeout=timeout + 30) as res:
-        return json.load(res)
+    """Consulta o Overpass com mirrors e retry (502/timeout são comuns)."""
+    ultimo_erro: Exception | None = None
+    for url in OVERPASS_URLS:
+        for tentativa in range(1, TENTATIVAS_POR_MIRROR + 1):
+            data = urllib.parse.urlencode({"data": query}).encode()
+            req = urllib.request.Request(url, data=data, method="POST", headers={
+                "User-Agent": "atlas-urbano/0.1 (projeto universitário; contato via repo)",
+                "Accept": "application/json",
+            })
+            try:
+                with urllib.request.urlopen(req, timeout=timeout + 30) as res:
+                    return json.load(res)
+            except Exception as erro:  # noqa: BLE001 - registra e tenta de novo
+                ultimo_erro = erro
+                print(f"  [{url.split('/')[2]}] tentativa {tentativa} falhou: {erro}")
+                time.sleep(ESPERA_RETRY_S)
+    raise ultimo_erro if ultimo_erro else RuntimeError("Overpass indisponível")
 
 
 def fetch_boundary():
@@ -35,7 +55,11 @@ def fetch_boundary():
     q = f"""[out:json][timeout:{TIMEOUT_S}];
 relation["boundary"="administrative"]["admin_level"="{ADMIN_LEVEL}"]["name"="{MUNICIPIO}"];
 out geom;"""
-    payload = overpass(q, TIMEOUT_S)
+    try:
+        payload = overpass(q, TIMEOUT_S)
+    except Exception as erro:  # noqa: BLE001
+        print(f"  AVISO: contorno indisponível ({erro}); usando bbox de fallback.")
+        return BBOX_FALLBACK
     coords = []
     for el in payload.get("elements", []):
         for m in el.get("members", []):

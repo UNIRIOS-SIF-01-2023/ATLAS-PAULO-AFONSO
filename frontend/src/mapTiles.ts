@@ -49,6 +49,12 @@ export function dotRadiusExpression(): any {
 
 export type Bounds = [number, number, number, number];
 
+export interface RooftopFonteStats {
+  concorda: number;
+  discorda: number;
+  sem_dado: number;
+}
+
 export interface RooftopStats {
   registros_cnefe: number;
   enderecos_base: number;
@@ -67,6 +73,11 @@ export interface RooftopStats {
   confiabilidade_media: number;
   concordancias: number;
   discordancias: number;
+  corroborados_1: number;
+  corroborados_1_pct: number;
+  corroborados_2: number;
+  corroborados_2_pct: number;
+  por_fonte: Record<string, RooftopFonteStats>;
 }
 
 export interface MapMeta {

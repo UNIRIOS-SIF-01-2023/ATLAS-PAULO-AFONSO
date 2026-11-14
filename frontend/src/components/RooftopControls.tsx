@@ -19,6 +19,14 @@ interface Props {
   onEnabledChange?: (value: boolean) => void;
 }
 
+const ROTULO_FONTE: Record<string, string> = {
+  lote_prefeitura: 'Lote da prefeitura',
+  osm_numero: 'Número OSM',
+  paridade: 'Paridade da face',
+  porte: 'Porte × área',
+  coerencia_especie: 'Espécie CNEFE × tipo do prédio',
+};
+
 export function RooftopControls({
   value,
   onChange,
@@ -123,6 +131,32 @@ export function RooftopControls({
                 <div><dt>Evidências concordantes</dt><dd>{formatNumber(stats.concordancias)}</dd></div>
                 <div><dt>Discordantes</dt><dd>{formatNumber(stats.discordancias)}</dd></div>
                 <div><dt>Confiabilidade média</dt><dd>{formatNumber(stats.confiabilidade_media)}%</dd></div>
+              </dl>
+            </>
+          )}
+
+          {stats?.por_fonte && Object.keys(stats.por_fonte).length > 0 && (
+            <>
+              <div className="section-head" style={{ marginTop: 12 }}>
+                <h2 className="section-label">Cruzamento por fonte</h2>
+              </div>
+              <dl className="facts">
+                {Object.entries(stats.por_fonte).map(([fonte, valores]) => (
+                  <div key={fonte}>
+                    <dt>{ROTULO_FONTE[fonte] ?? fonte}</dt>
+                    <dd>
+                      {formatNumber(valores.concorda)} concordam · {formatNumber(valores.discorda)} discordam ·{' '}
+                      {formatNumber(valores.sem_dado)} sem dado
+                    </dd>
+                  </div>
+                ))}
+                <div>
+                  <dt>Confirmados por fonte externa</dt>
+                  <dd>
+                    {formatNumber(stats.corroborados_1)} ({formatNumber(stats.corroborados_1_pct)}%) ·{' '}
+                    {formatNumber(stats.corroborados_2)} por 2+ ({formatNumber(stats.corroborados_2_pct)}%)
+                  </dd>
+                </div>
               </dl>
             </>
           )}
