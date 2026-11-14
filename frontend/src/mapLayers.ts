@@ -150,8 +150,12 @@ function combinarFiltros(a: any, b: any): any {
   return a ?? b;
 }
 
-/** Liga/desliga pontos e polígonos e aplica confiança/alterados sem recarregar o GeoJSON. */
-export function applyRooftopFilters(map: MapLibreMap, options: RooftopOptions) {
+/** Liga/desliga pontos e polígonos e aplica confiança/alterados sem recarregar o GeoJSON.
+ *
+ * No modo Final os polígonos ficam pintados pelo TIPO do prédio (mesma paleta da
+ * visão normal do aplicativo), sem marcação de confiança e sem pontos — é como o
+ * app ficaria publicado, com o endereço disponível ao clicar. */
+export function applyRooftopFilters(map: MapLibreMap, options: RooftopOptions, theme: Theme = 'dark') {
   const todas = options.confiancas.size === ROOFTOP_CONFIDENCES.length;
   const filtroConfianca = todas
     ? undefined
@@ -169,6 +173,7 @@ export function applyRooftopFilters(map: MapLibreMap, options: RooftopOptions) {
 
   const isFinal = options.viewMode === 'final';
   const pointsVisible = !isFinal && options.showPoints;
+  const corPoligonos = isFinal ? colorByTipo(['get', 'tipo'], theme) : confiancaColor(theme);
 
   for (const layer of [ROOFTOP_LAYER, ROOFTOP_LABEL_LAYER]) {
     if (!map.getLayer(layer)) continue;
@@ -179,6 +184,22 @@ export function applyRooftopFilters(map: MapLibreMap, options: RooftopOptions) {
     if (!map.getLayer(layer)) continue;
     map.setFilter(layer, filtroPoligonos);
     map.setLayoutProperty(layer, 'visibility', options.showPolygons ? 'visible' : 'none');
+  }
+  if (map.getLayer(ROOFTOP_POLYGON_LAYER)) {
+    map.setPaintProperty(ROOFTOP_POLYGON_LAYER, 'fill-color', corPoligonos);
+    map.setPaintProperty(
+      ROOFTOP_POLYGON_LAYER,
+      'fill-opacity',
+      isFinal ? 0.85 : ['case', ['==', ['get', 'mudou'], true], 0.38, 0.22],
+    );
+  }
+  if (map.getLayer(ROOFTOP_POLYGON_LINE_LAYER)) {
+    map.setPaintProperty(ROOFTOP_POLYGON_LINE_LAYER, 'line-color', corPoligonos);
+    map.setPaintProperty(
+      ROOFTOP_POLYGON_LINE_LAYER,
+      'line-width',
+      isFinal ? 1.1 : ['case', ['==', ['get', 'revisar'], true], 2.2, 1.1],
+    );
   }
 }
 

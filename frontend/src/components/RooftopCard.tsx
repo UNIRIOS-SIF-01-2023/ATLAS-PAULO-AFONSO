@@ -23,6 +23,7 @@ export function RooftopCard({ selection, theme = 'dark', onClose, onCopy }: Prop
   const props = selection.properties;
   const polygon = selection.kind === 'polygon';
   const confianca = props.confianca;
+  const pct = numero(props.confiabilidade_pct);
   const enderecos = polygon ? String(props.enderecos ?? '').split(' | ').filter(Boolean) : [];
   const nEnderecos = numero(props.n_enderecos);
   const titulo = polygon
@@ -42,7 +43,7 @@ export function RooftopCard({ selection, theme = 'dark', onClose, onCopy }: Prop
         </button>
         <span className="tipo-pill" style={{ ['--tipo' as string]: corDaConfianca(confianca, theme) }}>
           <span className="swatch" />
-          {rotuloDaConfianca(confianca)}
+          {rotuloDaConfianca(confianca)}{pct != null ? ` · ${formatNumber(pct)}%` : ''}
         </span>
         <button type="button" className="icon-button" aria-label="Fechar" onClick={onClose}>
           <Icon name="close" size={16} />
@@ -58,6 +59,10 @@ export function RooftopCard({ selection, theme = 'dark', onClose, onCopy }: Prop
         <dl className="facts">
           <div><dt>Endereços</dt><dd>{formatNumber(nEnderecos ?? 0)}</dd></div>
           <div><dt>Unidades</dt><dd>{formatNumber(numero(props.n_unidades) ?? 0)}</dd></div>
+          <div>
+            <dt>Confiabilidade</dt>
+            <dd>{pct != null ? `${formatNumber(pct)}%` : '—'}</dd>
+          </div>
           <div><dt>Alterado</dt><dd>{mudou ? 'Sim' : 'Não'}</dd></div>
         </dl>
       ) : (

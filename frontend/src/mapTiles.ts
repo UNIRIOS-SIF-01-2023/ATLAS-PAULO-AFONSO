@@ -49,6 +49,26 @@ export function dotRadiusExpression(): any {
 
 export type Bounds = [number, number, number, number];
 
+export interface RooftopStats {
+  registros_cnefe: number;
+  enderecos_base: number;
+  com_ponto: number;
+  sem_ponto: number;
+  taxa_acerto_pct: number;
+  por_metodo: Record<string, number>;
+  por_confianca: Record<string, number>;
+  sn_total: number;
+  sn_com_ponto: number;
+  sn_sem_ponto: number;
+  anexos: number;
+  condominios: number;
+  revisar_face: number;
+  mudou_bld: number;
+  confiabilidade_media: number;
+  concordancias: number;
+  discordancias: number;
+}
+
 export interface MapMeta {
   version: string;
   bounds: Bounds | null;
@@ -71,6 +91,7 @@ export interface MapMeta {
   updated_at?: number | null;
   source?: string;
   missing?: boolean;
+  stats?: RooftopStats | null;
 }
 
 /** Opacidade por zoom: entra em [enter, enter+FADE_IN], sai depois de exit. */

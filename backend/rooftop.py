@@ -23,6 +23,7 @@ RAIZ = Path(__file__).resolve().parent.parent
 DEFAULT_PATH = RAIZ / "data" / "processed" / "pontos_rooftop.geojson"
 DEFAULT_POLYGONS_PATH = RAIZ / "data" / "processed" / "pontos_rooftop_poligonos.geojson"
 DEFAULT_CNEFE_PATH = RAIZ / "data" / "processed" / "pontos_rooftop_debug" / "cnefe_original.csv"
+DEFAULT_STATS_PATH = RAIZ / "data" / "processed" / "pontos_rooftop_stats.json"
 EMPTY_PONTOS = {"type": "FeatureCollection", "name": "cnefe_rooftop", "features": []}
 EMPTY_POLIGONOS = {"type": "FeatureCollection", "name": "cnefe_rooftop_poligonos", "features": []}
 EMPTY_CNEFE = {"type": "FeatureCollection", "name": "cnefe_original", "features": []}
@@ -46,6 +47,20 @@ def caminho_poligonos() -> Path:
 def caminho_cnefe() -> Path:
     """CSV bruto do CNEFE configurado por `ROOFTOP_CNEFE`."""
     return Path(os.environ.get("ROOFTOP_CNEFE", DEFAULT_CNEFE_PATH))
+
+
+def caminho_stats() -> Path:
+    """JSON de estatísticas do run (taxa de acerto) configurado por `ROOFTOP_STATS`."""
+    return Path(os.environ.get("ROOFTOP_STATS", DEFAULT_STATS_PATH))
+
+
+def ler_stats() -> dict | None:
+    """Contadores completos do último run (escrever_stats); None se ausente."""
+    path = caminho_stats()
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def _ler(path: Path, cache: dict, vazio: dict) -> dict:
@@ -190,6 +205,7 @@ def map_meta() -> dict:
         "polygon_file": str(polys_path),
         "polygon_missing": not polys_path.exists(),
         "updated_at": updated_at,
+        "stats": ler_stats(),
     }
 
 

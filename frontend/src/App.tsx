@@ -416,7 +416,7 @@ export default function App() {
     if (!map || map !== mapRef.current || (!ROOFTOP_ONLY && !showRooftop)) return;
     const dinamico = ROOFTOP_ONLY;
     addRooftopLayer(map, API_URL, labelLayerRef.current, theme, { dynamic: dinamico });
-    applyRooftopFilters(map, rooftopOptionsRef.current);
+    applyRooftopFilters(map, rooftopOptionsRef.current, theme);
     const pointer = () => { map.getCanvas().style.cursor = 'pointer'; };
     const reset = () => { map.getCanvas().style.cursor = ''; };
     for (const layer of ROOFTOP_CLICKABLE_LAYERS) {
@@ -529,8 +529,8 @@ export default function App() {
   useEffect(() => {
     const map = dataMap ?? readyMap;
     if (!map || map !== mapRef.current) return;
-    applyRooftopFilters(map, rooftopOptions);
-  }, [dataMap, readyMap, rooftopOptions, styleRevision]);
+    applyRooftopFilters(map, rooftopOptions, theme);
+  }, [dataMap, readyMap, rooftopOptions, styleRevision, theme]);
 
   // --- Seleção -----------------------------------------------------------
 
@@ -845,8 +845,8 @@ export default function App() {
               />
               <label className="switch-row" style={{ marginTop: 12 }}>
                 <span>
-                  <strong>CNEFE original</strong>
-                  <span className="muted">Endereços brutos antes do rooftop, para comparação</span>
+                  <strong>Cruzar com CNEFE original</strong>
+                  <span className="muted">Círculos vazados: onde o algoritmo acerta o ponto bruto do IBGE</span>
                 </span>
                 <input
                   type="checkbox"

@@ -1800,6 +1800,42 @@ def adicionar_confiabilidade(a):
     return a
 
 
+def escrever_stats(a, registros_cnefe, path):
+    """JSON com a taxa de acerto e todos os contadores do run, para o /meta.
+
+    Quantos endereços CNEFE receberam um ponto, quantos ficaram sem prédio,
+    quantos S/N, por método, por confiança e as evidências concordantes.
+    """
+    total = int(len(a))
+    com_ponto = a["bld"].fillna(-1) >= 0
+    sn = a["sn"].fillna(False).astype(bool) if "sn" in a else pd.Series(False, index=a.index)
+    def _int(serie):
+        return int(pd.to_numeric(serie, errors="coerce").fillna(False).astype(bool).sum())
+    stats = {
+        "registros_cnefe": int(registros_cnefe),
+        "enderecos_base": total,
+        "com_ponto": int(com_ponto.sum()),
+        "sem_ponto": int((~com_ponto).sum()),
+        "taxa_acerto_pct": round(100 * int(com_ponto.sum()) / max(1, total), 1),
+        "por_metodo": {str(k): int(v) for k, v in a["metodo"].value_counts().items()},
+        "por_confianca": {str(k): int(v) for k, v in a["confianca"].value_counts().items()},
+        "sn_total": int(sn.sum()),
+        "sn_com_ponto": int((sn & com_ponto).sum()),
+        "sn_sem_ponto": int((sn & ~com_ponto).sum()),
+        "anexos": int((a["tipo_vinculo"] == "anexo").sum()) if "tipo_vinculo" in a else 0,
+        "condominios": int((a["tipo_vinculo"] == "condominio").sum()) if "tipo_vinculo" in a else 0,
+        "revisar_face": _int(a.get("revisar_face", pd.Series(False, index=a.index))),
+        "mudou_bld": _int(a.get("mudou_bld", pd.Series(False, index=a.index))),
+        "confiabilidade_media": round(float(pd.to_numeric(a.get("confiabilidade_pct"), errors="coerce").mean() or 0), 1),
+        "concordancias": int(pd.to_numeric(a.get("n_concordam"), errors="coerce").fillna(0).sum()),
+        "discordancias": int(pd.to_numeric(a.get("n_discordam"), errors="coerce").fillna(0).sum()),
+    }
+    destino = Path(path)
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    destino.write_text(json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8")
+    return destino
+
+
 def escrever_web_geojson(a, path):
     """GeoJSON 4326 só com os pontos finais, para o backend/frontend servir."""
     m = a[a["bld"] >= 0].copy()
@@ -1858,10 +1894,13 @@ def escrever_web_poligonos(a, blds, path):
             conf = ("alta" if "alta" in confs else
                     "media" if "media" in confs else
                     "baixa" if "baixa" in confs else "nenhuma")
+            pct = (int(round(pd.to_numeric(g["confiabilidade_pct"], errors="coerce").mean()))
+                   if "confiabilidade_pct" in g else 0)
             return pd.Series({
                 "n_enderecos": int(len(g)),
                 "n_unidades": int(g["unidades"].sum()),
                 "confianca": conf,
+                "confiabilidade_pct": pct,
                 "compartilhado": bool(g["compartilhado"].any()) if "compartilhado" in g else False,
                 "motivos_confianca": " | ".join(sorted(set(g["motivo_confianca"].dropna().astype(str)))) if "motivo_confianca" in g else "",
                 "mudou": bool(g["mudou_bld"].fillna(False).any()
@@ -1872,6 +1911,8 @@ def escrever_web_poligonos(a, blds, path):
             })
         r = m.groupby("bld").apply(resumo, include_groups=False).reset_index()
         cols_bld = ["bld_idx", "id", "geometry"]
+        if "tipo" in blds.columns:
+            cols_bld.append("tipo")
         if "tipo_vinculo" in blds.columns:
             cols_bld.append("tipo_vinculo")
         if "bld_principal" in blds.columns:
@@ -1887,6 +1928,8 @@ def escrever_web_poligonos(a, blds, path):
                 "n_enderecos": int(row["n_enderecos"]),
                 "n_unidades": int(row["n_unidades"]),
                 "confianca": row["confianca"],
+                "confiabilidade_pct": int(row["confiabilidade_pct"]),
+                "tipo": str(row.get("tipo") or "desconhecido") if "tipo" in row else "desconhecido",
                 "tipo_vinculo": str(row.get("tipo_vinculo") or "principal"),
                 "bld_principal": str(row.get("bld_principal") or row["id"]),
                 "compartilhado": bool(row.get("compartilhado", False)),
@@ -1927,6 +1970,7 @@ def processar(cnefe_path, edif_path, saida, debug=False, debug_gpkg=None,
     blds = blds.to_crs(crs)
 
     df = carregar_cnefe(cnefe_path, bbox)
+    registros_cnefe = len(df)
     if debug:
         gpkg = Path(debug_gpkg) if debug_gpkg else Path(saida).with_name(Path(saida).stem + ".debug.gpkg")
         csv_dir = Path(debug_csv_dir) if debug_csv_dir else Path(saida).with_name(Path(saida).stem + "_debug")
@@ -2037,7 +2081,9 @@ def processar(cnefe_path, edif_path, saida, debug=False, debug_gpkg=None,
 
     if web_geojson:
         escrever_web_geojson(a, web_geojson)
-        print(f"GeoJSON web: {web_geojson}")
+        stats_path = Path(web_geojson).with_name(Path(web_geojson).stem + "_stats.json")
+        escrever_stats(a, registros_cnefe, stats_path)
+        print(f"GeoJSON web: {web_geojson} (stats: {stats_path})")
     if web_poligonos:
         escrever_web_poligonos(a, blds, web_poligonos)
         print(f"GeoJSON polígonos: {web_poligonos}")

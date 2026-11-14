@@ -1,0 +1,30 @@
+{
+  "registros_cnefe": 52821,
+  "enderecos_base": 50517,
+  "com_ponto": 45758,
+  "sem_ponto": 4759,
+  "taxa_acerto_pct": 90.6,
+  "por_metodo": {
+    "raio": 36142,
+    "anexo": 4888,
+    "sem_match": 4759,
+    "raio+ordem": 4241,
+    "vizinho": 487
+  },
+  "por_confianca": {
+    "media": 32639,
+    "alta": 12856,
+    "nenhuma": 4759,
+    "baixa": 263
+  },
+  "sn_total": 5300,
+  "sn_com_ponto": 3949,
+  "sn_sem_ponto": 1351,
+  "anexos": 4888,
+  "condominios": 0,
+  "revisar_face": 17120,
+  "mudou_bld": 9129,
+  "confiabilidade_media": 64.6,
+  "concordancias": 73493,
+  "discordancias": 7213
+}

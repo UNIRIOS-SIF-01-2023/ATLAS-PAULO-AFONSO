@@ -32,6 +32,7 @@ export function RooftopControls({
   const media = meta?.medium_count ?? 0;
   const baixa = meta?.low_count ?? 0;
   const total = meta?.address_count ?? 0;
+  const stats = meta?.stats ?? null;
   const counts: Record<RooftopConfidence, number> = {
     alta,
     media,
@@ -88,14 +89,43 @@ export function RooftopControls({
 
           <div className="stat-hero" style={{ padding: '8px 0', borderBottom: '1px solid var(--border, #334155)', marginBottom: 12 }}>
             <span className="stat-value" style={{ fontSize: '1.4rem' }}>
-              {meta?.coverage_pct != null ? `${meta.coverage_pct}%` : '—'}
+              {stats
+                ? `${formatNumber(stats.taxa_acerto_pct)}%`
+                : meta?.coverage_pct != null ? `${meta.coverage_pct}%` : '—'}
             </span>
-            <span className="stat-caption">dos polígonos com ponto CNEFE correspondente</span>
+            <span className="stat-caption">
+              {stats ? 'dos endereços CNEFE com ponto no prédio' : 'dos polígonos com ponto CNEFE correspondente'}
+            </span>
             <p className="muted small" style={{ margin: '4px 0 0' }}>
-              {formatNumber(meta?.building_count ?? 0)} de {formatNumber(meta?.polygon_count ?? meta?.building_count ?? 0)} prédios mapeados
-              {meta?.anexo_count ? ` · ${formatNumber(meta.anexo_count)} anexos no fundo` : ''}
+              {stats
+                ? `${formatNumber(stats.com_ponto)} de ${formatNumber(stats.enderecos_base)} endereços com ponto · ${formatNumber(stats.sem_ponto)} sem prédio`
+                : `${formatNumber(meta?.building_count ?? 0)} de ${formatNumber(meta?.polygon_count ?? meta?.building_count ?? 0)} prédios mapeados`}
+              {stats?.anexos ? ` · ${formatNumber(stats.anexos)} anexos` : ''}
             </p>
           </div>
+
+          {stats && (
+            <>
+              <div className="section-head" style={{ marginTop: 12 }}>
+                <h2 className="section-label">Cobertura do algoritmo</h2>
+              </div>
+              <dl className="facts">
+                <div><dt>Registros CNEFE (casa)</dt><dd>{formatNumber(stats.registros_cnefe)}</dd></div>
+                <div><dt>Endereços-base</dt><dd>{formatNumber(stats.enderecos_base)}</dd></div>
+                <div><dt>Com ponto</dt><dd>{formatNumber(stats.com_ponto)} ({formatNumber(stats.taxa_acerto_pct)}%)</dd></div>
+                <div><dt>Sem prédio (nada)</dt><dd>{formatNumber(stats.sem_ponto)}</dd></div>
+                <div><dt>S/N sem prédio</dt><dd>{formatNumber(stats.sn_sem_ponto)}</dd></div>
+                <div><dt>S/N com ponto</dt><dd>{formatNumber(stats.sn_com_ponto)}</dd></div>
+                <div><dt>Anexos</dt><dd>{formatNumber(stats.anexos)}</dd></div>
+                <div><dt>Condomínios</dt><dd>{formatNumber(stats.condominios)}</dd></div>
+                <div><dt>Alterados</dt><dd>{formatNumber(stats.mudou_bld)}</dd></div>
+                <div><dt>Face p/ revisar</dt><dd>{formatNumber(stats.revisar_face)}</dd></div>
+                <div><dt>Evidências concordantes</dt><dd>{formatNumber(stats.concordancias)}</dd></div>
+                <div><dt>Discordantes</dt><dd>{formatNumber(stats.discordancias)}</dd></div>
+                <div><dt>Confiabilidade média</dt><dd>{formatNumber(stats.confiabilidade_media)}%</dd></div>
+              </dl>
+            </>
+          )}
 
           <div className="section-head">
             <h2 className="section-label">Confiança dos pontos</h2>
