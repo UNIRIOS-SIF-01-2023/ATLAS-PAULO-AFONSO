@@ -541,6 +541,8 @@ def agregar_enderecos(df, crs):
 
     agg = pts.groupby("addr_key").agg(
         x=("x", "mean"), y=("y", "mean"), unidades=("x", "size"),
+        setor_cnefe=(c["setor"], "first"), quadra_cnefe=(c["quadra"], "first"),
+        face_cnefe=(c["face"], "first"),
         quadra_key=("quadra_key", "first"), face_key=("face_key", "first"),
         tipo=(c["tipo"], "first"), titulo=(c["titulo"], "first"), logr=(c["logr"], "first"),
         num=("num_i", "first"), mod=(c["mod"], "first"), cep=(c["cep"], "first"),
@@ -558,7 +560,72 @@ def agregar_enderecos(df, crs):
 
 
 # ---------------------------------------------------------------- direção
-def calcular_normais(a, crs=None, debug: Debug | None = None):
+def _chave_face(setor, quadra, face) -> str:
+    def normalizar(valor):
+        texto = str(valor).strip()
+        return texto[:-2] if texto.endswith(".0") else texto
+    return "|".join(normalizar(valor) for valor in (setor, quadra, face))
+
+
+def _segmento_dominante(geometria):
+    """Extrai o segmento mais longo de uma linha/multilinha como vetor unitário."""
+    if geometria is None or geometria.is_empty:
+        return None
+    linhas = list(geometria.geoms) if geometria.geom_type == "MultiLineString" else [geometria]
+    melhor = None
+    melhor_comprimento = 0.0
+    for linha in linhas:
+        if linha.geom_type != "LineString":
+            continue
+        coords = np.asarray(linha.coords, dtype=float)[:, :2]
+        if len(coords) < 2:
+            continue
+        vetores = np.diff(coords, axis=0)
+        comprimentos = np.linalg.norm(vetores, axis=1)
+        i = int(np.argmax(comprimentos))
+        if comprimentos[i] > melhor_comprimento:
+            melhor_comprimento = float(comprimentos[i])
+            melhor = vetores[i] / comprimentos[i]
+    return melhor
+
+
+def carregar_faces_ibge(path: str | Path, crs) -> dict[str, np.ndarray]:
+    """Carrega a tangente dominante das linhas da Base de Faces de Logradouros."""
+    faces = gpd.read_file(path)
+    aliases = {
+        "setor": ("CD_SETOR", "COD_SETOR", "setor"),
+        "quadra": ("CD_QUADRA", "NUM_QUADRA", "quadra"),
+        "face": ("CD_FACE", "NUM_FACE", "face"),
+    }
+    colunas = {}
+    for chave, nomes in aliases.items():
+        coluna = next((nome for nome in nomes if nome in faces.columns), None)
+        if coluna is None:
+            raise ValueError(f"Base de Faces IBGE sem coluna de {chave}: esperada uma de {nomes}.")
+        colunas[chave] = coluna
+    if faces.crs is None:
+        raise ValueError("Base de Faces IBGE precisa declarar o CRS das linhas.")
+    faces = faces.to_crs(crs)
+    resultado: dict[str, np.ndarray] = {}
+    comprimentos: dict[str, float] = {}
+    for _, row in faces.iterrows():
+        vetor = _segmento_dominante(row.geometry)
+        if vetor is None:
+            continue
+        chave = _chave_face(*(row[colunas[k]] for k in ("setor", "quadra", "face")))
+        if not all(chave.split("|")):
+            continue
+        # Em linhas repetidas para a mesma face, mantém a geometria que fornece
+        # o maior segmento utilizável; isso evita depender da ordem do arquivo.
+        tamanho = float(row.geometry.length)
+        if tamanho > comprimentos.get(chave, -1):
+            resultado[chave] = vetor
+            comprimentos[chave] = tamanho
+    return resultado
+
+
+def calcular_normais(a, crs=None, debug: Debug | None = None,
+                     faces_ibge: dict[str, np.ndarray] | None = None):
     """Normal 'para dentro da quadra' de cada endereço, a partir da reta da face."""
     qc = a.groupby("quadra_key")[["x", "y"]].transform("mean").to_numpy()
 
@@ -575,7 +642,15 @@ def calcular_normais(a, crs=None, debug: Debug | None = None):
         return pd.Series({"tx": t[0], "ty": t[1]})
 
     tg = a.groupby("face_key")[["x", "y"]].apply(tangente)
-    t = a[["face_key"]].join(tg, on="face_key")[["tx", "ty"]].to_numpy()
+    t = a[["face_key"]].join(tg, on="face_key")[["tx", "ty"]].to_numpy(copy=True)
+    fonte = np.where(np.isfinite(t[:, 0]), "svd", "centro_quadra").astype(object)
+    if faces_ibge:
+        for i, row in enumerate(a.itertuples()):
+            chave = _chave_face(row.setor_cnefe, row.quadra_cnefe, row.face_cnefe)
+            vetor = faces_ibge.get(chave)
+            if vetor is not None:
+                t[i] = vetor
+                fonte[i] = "faces_ibge"
     p = a[["x", "y"]].to_numpy()
     v = qc - p                                   # do ponto ao centro da quadra
     n = np.column_stack([-t[:, 1], t[:, 0]])     # perpendicular à face
@@ -591,6 +666,7 @@ def calcular_normais(a, crs=None, debug: Debug | None = None):
     ambiguo[sem_t] = norm[sem_t] < CFG["ambiguo_m"]
     n[ambiguo & sem_t] = np.nan
     a["nx"], a["ny"], a["tx"], a["ty"], a["ambiguo"] = n[:, 0], n[:, 1], t[:, 0], t[:, 1], ambiguo
+    a["fonte_direcao"] = fonte
 
     if debug is not None:
         ok = ~np.isnan(n[:, 0])
@@ -599,7 +675,7 @@ def calcular_normais(a, crs=None, debug: Debug | None = None):
         comprimento = min(CFG["raio_max"], 20.0)
         linhas = shapely.linestrings(np.stack([pp, pp + nn * comprimento], axis=1))
         gdf = gpd.GeoDataFrame(
-            a.loc[ok, ["addr_key", "endereco", "face_key", "x", "y", "nx", "ny", "ambiguo"]].reset_index(drop=True),
+            a.loc[ok, ["addr_key", "endereco", "face_key", "x", "y", "nx", "ny", "ambiguo", "fonte_direcao"]].reset_index(drop=True),
             geometry=linhas,
             crs=crs,
         )
@@ -609,6 +685,9 @@ def calcular_normais(a, crs=None, debug: Debug | None = None):
             enderecos=len(a), com_normal=int(ok.sum()),
             sem_normal=int((~ok).sum()), ambiguos=int(np.nansum(ambiguo)),
             face_sem_reta=int(sem_t.sum()),
+            direcao_faces_ibge=int((fonte == "faces_ibge").sum()),
+            direcao_svd=int((fonte == "svd").sum()),
+            direcao_centro_quadra=int((fonte == "centro_quadra").sum()),
         )
     return a
 
@@ -1581,7 +1660,8 @@ def escrever_web_poligonos(a, blds, path):
 # ---------------------------------------------------------------- pipeline
 def processar(cnefe_path, edif_path, saida, debug=False, debug_gpkg=None,
               debug_csv_dir=None, web_geojson=None, web_poligonos=None,
-              perimetros=None, modelo=None, params=None, corte_prob=None):
+              perimetros=None, modelo=None, params=None, corte_prob=None,
+              faces_ibge_path=None, medir_direcao=False):
     if params:
         p_dict = json.loads(Path(params).read_text(encoding="utf-8")) if isinstance(params, (str, Path)) and Path(params).exists() else params
         if isinstance(p_dict, dict):
@@ -1610,16 +1690,37 @@ def processar(cnefe_path, edif_path, saida, debug=False, debug_gpkg=None,
         dbg = None
 
     a = agregar_enderecos(df, crs)
+    faces_ibge = carregar_faces_ibge(faces_ibge_path, crs) if faces_ibge_path else None
+    if medir_direcao and faces_ibge is None:
+        raise ValueError("--medir-direcao requer --faces-ibge.")
     if dbg is not None:
         agregados = gpd.GeoDataFrame(a.copy(), geometry=gpd.points_from_xy(a["x"], a["y"]), crs=crs)
         dbg.layer("enderecos_agregados", agregados)
         dbg.etapa("agregacao", enderecos_base=len(a), unidades=len(df))
 
-    a = calcular_normais(a, crs=crs, debug=dbg)
+    bld_svd = None
+    if medir_direcao:
+        baseline = calcular_normais(a.copy(), crs=crs)
+        baseline, hits_svd, donos_svd = atribuir(baseline, blds)
+        baseline = refinar_por_ordem(baseline, blds, hits_svd, donos=donos_svd)
+        bld_svd = baseline["bld"].to_numpy(copy=True)
+
+    a = calcular_normais(a, crs=crs, debug=dbg, faces_ibge=faces_ibge)
+    if dbg is not None and faces_ibge is not None:
+        dbg.etapa("faces_ibge", faces_disponiveis=len(faces_ibge),
+                  enderecos_com_direcao_ibge=int((a["fonte_direcao"] == "faces_ibge").sum()))
     a, hits, donos = atribuir(a, blds, debug=dbg)
 
     antes = _snapshot(a)
     a = refinar_por_ordem(a, blds, hits, donos=donos, debug=dbg)
+    if bld_svd is not None:
+        bld_ibge = a["bld"].to_numpy()
+        mudaram = int(np.count_nonzero(bld_svd != bld_ibge))
+        if dbg is not None:
+            dbg.etapa("impacto_faces_ibge", enderecos_com_edificacao_alterada=mudaram,
+                      enderecos_comparados=len(bld_ibge))
+        print(f"Impacto Base de Faces IBGE: {mudaram:,}/{len(bld_ibge):,} endereços "
+              "mudaram de edificação após atribuição e ordem.")
     a = avaliar_conflitos(a, blds)
     a, blds, df_condo = vincular_condominios(a, blds, perimetros_path=perimetros)
     a, blds, df_anexos = vincular_anexos(a, blds)
@@ -1664,7 +1765,8 @@ def processar(cnefe_path, edif_path, saida, debug=False, debug_gpkg=None,
             "metodo_antes", "confianca", "confianca_antes", "compartilhado", "motivo_confianca",
             "tipo_vinculo", "endereco_ref", "condominio_sem_perimetro", "prob_correto",
             "mudou_bld", "mudou_ponto", "deslocamento_m", "dp", "dp_custo", "share", "dmin",
-            "acerto_raio_central", "ambiguo", "face_key", "face_rho", "revisar_face", "geometry"]
+            "acerto_raio_central", "ambiguo", "face_key", "face_rho", "fonte_direcao",
+            "revisar_face", "geometry"]
     cols = [c for c in cols if c in a.columns]
     saida = Path(saida)
     saida.parent.mkdir(parents=True, exist_ok=True)
@@ -1706,6 +1808,10 @@ def _cli():
                    help="também grava os polígonos dos prédios que receberam pontos")
     p.add_argument("--perimetros", default=None,
                    help="GeoPackage/GeoJSON opcional com perímetros de condomínios/lotes")
+    p.add_argument("--faces-ibge", default=None,
+                   help="Base de Faces de Logradouros IBGE com CD_SETOR/CD_QUADRA/CD_FACE e linhas")
+    p.add_argument("--medir-direcao", action="store_true",
+                   help="compara com SVD e mede endereços que mudaram de edificação; requer --faces-ibge")
     p.add_argument("--modelo", default=None,
                    help="caminho do modelo scikit-learn (.joblib) treinado para prever acerto")
     p.add_argument("--params", default=None,
@@ -1746,6 +1852,8 @@ def _cli():
         modelo=args.modelo,
         params=args.params,
         corte_prob=args.corte_prob,
+        faces_ibge_path=args.faces_ibge,
+        medir_direcao=args.medir_direcao,
     )
 
 
