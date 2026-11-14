@@ -6,13 +6,14 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from shapely.geometry import mapping, Polygon
+from shapely.geometry import mapping, LineString, Point, Polygon
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 MUNICIPIO = "Paulo Afonso"
 ADMIN_LEVEL = "8"
 OUT_DIR = Path("data/raw/osm")
 OUT_FILE = OUT_DIR / "osm_buildings_paulo_afonso.geojson"
+OUT_ADDRESSES_FILE = OUT_DIR / "osm_enderecos_paulo_afonso.geojson"
 BBOX_FILE = OUT_DIR / "municipio_bbox.json"  # cache (via Nominatim, 1 request)
 GRID = 6  # 6x6 células: consultas menores evitam o timeout do servidor
 TIMEOUT_S = 120
@@ -51,12 +52,53 @@ out geom;"""
 
 
 def fetch_cell(s, w, n, e):
-    # Só ways: relations com tag building são raríssimas e o `out geom`
-    # delas é o que estoura o timeout do servidor público.
+    # Consulta pegadas e endereços no mesmo pedido para evitar carga duplicada
+    # sobre a instância pública do Overpass.
     q = f"""[out:json][timeout:{TIMEOUT_S}];
-way["building"]({s},{w},{n},{e});
+(
+  way["building"]({s},{w},{n},{e});
+  nw["addr:housenumber"]({s},{w},{n},{e});
+);
 out geom;"""
     return overpass(q, TIMEOUT_S).get("elements", [])
+
+
+ADDRESS_TAGS = (
+    "addr:housenumber", "addr:street", "addr:place", "addr:postcode", "addr:unit",
+)
+
+
+def extrair_endereco_osm(element):
+    """Converte elemento OSM com endereço em ponto; não copia nome/contato pessoal."""
+    tags = element.get("tags") or {}
+    if not tags.get("addr:housenumber"):
+        return None
+    tipo = element.get("type")
+    if tipo == "node" and "lon" in element and "lat" in element:
+        ponto = Point(element["lon"], element["lat"])
+    elif tipo == "way" and element.get("geometry"):
+        coords = [(p["lon"], p["lat"]) for p in element["geometry"] if "lon" in p and "lat" in p]
+        if len(coords) < 2:
+            return None
+        geom = Polygon(coords) if len(coords) >= 4 and coords[0] == coords[-1] else LineString(coords)
+        if geom.is_empty or not geom.is_valid:
+            geom = geom.buffer(0)
+        if geom.is_empty:
+            return None
+        ponto = geom.representative_point()
+    else:
+        # A maior parte dos endereços OSM é node ou way; relações sem centro
+        # não são interpretadas para evitar um falso centróide.
+        return None
+    return {
+        "type": "Feature",
+        "id": f"{tipo}/{element['id']}",
+        "geometry": mapping(ponto),
+        "properties": {
+            "osm_id": f"{tipo}/{element['id']}",
+            **{tag: tags[tag] for tag in ADDRESS_TAGS if tags.get(tag)},
+        },
+    }
 
 
 def assemble(elements):
@@ -125,6 +167,7 @@ def main():
             cells.append((miny + i * dy, minx + j * dx,
                           miny + (i + 1) * dy, minx + (j + 1) * dx))
     seen, features = set(), []
+    seen_addresses, addresses = set(), []
 
     def colher(s, w, n, e, rotulo):
         print(f"{rotulo} ...", flush=True)
@@ -145,9 +188,20 @@ def main():
                 "properties": {
                     "osm_id": oid,
                     "building": (tags or {}).get("building"),
+                    **{tag: tags[tag] for tag in ADDRESS_TAGS if (tags or {}).get(tag)},
+                    "building:levels": (tags or {}).get("building:levels"),
+                    "height": (tags or {}).get("height"),
                 },
             })
+        n_enderecos = len(addresses)
+        for element in elements:
+            feature = extrair_endereco_osm(element)
+            if feature is None or feature["id"] in seen_addresses:
+                continue
+            seen_addresses.add(feature["id"])
+            addresses.append(feature)
         print(f"  +{len(features) - n0} polígonos")
+        print(f"  +{len(addresses) - n_enderecos} endereços OSM")
         time.sleep(PAUSA_S)  # gentileza com o servidor público
 
     # Passada 1: grade cheia.
@@ -168,9 +222,17 @@ def main():
                 colher(s2, w2, n2, e2, f"Repescagem {k + 1}.{q + 1}")
             except Exception as exc:
                 print(f"  falhou de novo ({exc}), desistindo do quadrante")
-    fc = {"type": "FeatureCollection", "features": features}
+    fc = {"type": "FeatureCollection", "name": "osm_buildings", "features": features}
     OUT_FILE.write_text(json.dumps(fc))
     print(f"Salvos {len(features)} polígonos em {OUT_FILE}")
+    address_fc = {
+        "type": "FeatureCollection", "name": "osm_enderecos",
+        "attribution": "© OpenStreetMap contributors",
+        "license": "ODbL-1.0",
+        "features": addresses,
+    }
+    OUT_ADDRESSES_FILE.write_text(json.dumps(address_fc, ensure_ascii=False))
+    print(f"Salvos {len(addresses)} endereços OSM em {OUT_ADDRESSES_FILE}")
 
 
 if __name__ == "__main__":
