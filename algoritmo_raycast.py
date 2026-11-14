@@ -1,5 +1,5 @@
 """
-cnefe_rooftop.py
+algoritmo_raycast.py — motor rooftop ativo (acessado pelo shim cnefe_rooftop.py)
 Atribui endereços do CNEFE 2022 a polígonos de edificação (Overture/OSM/MySQL)
 e gera um ponto "rooftop" dentro de cada edificação.
 
@@ -8,6 +8,9 @@ do próprio CNEFE, estimamos a direção da rua (reta ajustada nos pontos da fac
 e o lado "para dentro" da quadra (centro dos pontos da quadra). Daí lançamos um
 leque de raios do ponto para dentro da quadra; a primeira edificação atingida
 é a dona do endereço. Sem API externa, sem restrição de armazenamento.
+
+O algoritmo clássico (versão original, pré direção-IBGE/evidências) vive em
+`cnefe_rooftop_classico.py`; compare os dois com `scripts/comparar_algoritmos.py`.
 
 Uso básico:
     python cnefe_rooftop.py cnefe.csv edificacoes.parquet saida.gpkg
@@ -477,18 +480,21 @@ def carregar_cnefe(path: str | Path, bbox4326) -> pd.DataFrame:
             achada = next((a for a in ALIASES.get(chave, ()) if a in df.columns), None)
             df[coluna] = df[achada] if achada is not None else ""
 
-    # O GeoJSON do QG traz rua e número juntos em LOGRAD_NUM ("Rua X, 123").
+    # O GeoJSON do QG traz rua, número e modificador juntos em LOGRAD_NUM
+    # ("Rua X, 13 A", "Rua X, 89 SMS"); sem o modificador o endereço vira S/N.
     if "LOGRAD_NUM" in df.columns:
         ln = df["LOGRAD_NUM"].astype(str).str.strip()
+        partes = ln.str.extract(
+            r"^(?P<rua>.+?),\s*(?P<num>\d+)(?:\s+(?P<mod>\S.*?))?\s*$"
+        )
         vazio_num = df[c["num"]].astype(str).str.strip().isin(["", "nan", "None"])
-        if vazio_num.any():
-            df.loc[vazio_num, c["num"]] = (
-                ln[vazio_num].str.extract(r",\s*([0-9]+)\s*$")[0]
-            )
+        df.loc[vazio_num, c["num"]] = partes["num"][vazio_num]
+        # "13 A" -> num=13, mod="A": a letra faz parte do número oficial
+        vazio_mod = df[c["mod"]].astype(str).str.strip().isin(["", "nan", "None"])
+        df.loc[vazio_mod, c["mod"]] = partes["mod"].fillna("")[vazio_mod]
         vazio_logr = df[c["logr"]].astype(str).str.strip().isin(["", "nan", "None"])
         if vazio_logr.any():
-            rua = ln.str.rsplit(",", n=1).str[0].str.strip()
-            df.loc[vazio_logr, c["logr"]] = rua[vazio_logr]
+            df.loc[vazio_logr, c["logr"]] = partes["rua"][vazio_logr]
 
     for k in ("lat", "lon"):
         df[c[k]] = pd.to_numeric(

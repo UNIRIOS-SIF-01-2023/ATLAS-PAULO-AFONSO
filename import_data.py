@@ -213,24 +213,32 @@ def match_points(polys, points, q_indices=None):
 
 
 def cnefe_address_key(props: dict) -> tuple[str, str]:
-    """Retorna (id_unico, chave_composta) para correspondência com o rooftop."""
+    """Retorna (id_unico, chave_composta) para correspondência com o rooftop.
+
+    Mesma decomposição de LOGRAD_NUM usada em carregar_cnefe (algoritmo_raycast):
+    "Rua X, 13 A" -> rua="Rua X", num=13, mod="A"; "Rua X, 89 SMS" -> num=89,
+    mod="SMS". Sem isso endereços com modificador viram S/N indevidamente.
+    """
     uid = str(props.get("COD_UNICO_ENDERECO") or "").strip()
     ln = str(props.get("LOGRAD_NUM") or "").strip()
+    m = re.match(r"^(?P<rua>.+?),\s*(?P<num>\d+)(?:\s+(?P<mod>\S.*?))?\s*$", ln)
     num_str = str(props.get("NUM_ENDERECO") or "").strip()
     if not num_str or num_str in ("nan", "None"):
-        m = re.search(r",\s*([0-9]+)\s*$", ln)
-        num_str = m.group(1) if m else ""
+        num_str = m.group("num") if m else ""
     try:
         num_i = int(float(num_str)) if num_str else 0
     except (ValueError, TypeError):
         num_i = 0
     mod = str(props.get("DSC_MODIFICADOR") or "").strip()
+    if (not mod or mod in ("nan", "None")) and m and m.group("mod"):
+        mod = m.group("mod").strip()
     sn = (num_i == 0) or ("SN" in mod.upper())
     if sn:
         return uid, uid
     logr = str(props.get("NOM_SEGLOGR") or "").strip()
     if not logr or logr in ("nan", "None"):
-        logr = ln.rsplit(",", 1)[0].strip() if "," in ln else ln
+        logr = (m.group("rua").strip() if m else
+                ln.rsplit(",", 1)[0].strip() if "," in ln else ln)
     quadra_key = f"{props.get('COD_SETOR')}_{props.get('NUM_QUADRA')}"
     face_key = f"{quadra_key}_{props.get('NUM_FACE')}"
     return uid, f"{face_key}|{logr}|{num_i}|{mod}"

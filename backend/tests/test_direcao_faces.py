@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from shapely.geometry import LineString
 
-import cnefe_rooftop_alg
+import algoritmo_raycast as cnefe_rooftop_alg
 
 
 def test_direcao_ibge_tem_preferencia_e_fallback_svd_e_centro(tmp_path):

@@ -4,7 +4,7 @@ import geopandas as gpd
 import pytest
 from shapely.geometry import Polygon
 
-import cnefe_rooftop_alg
+import algoritmo_raycast as cnefe_rooftop_alg
 
 
 def _escrever_edificacoes(path):

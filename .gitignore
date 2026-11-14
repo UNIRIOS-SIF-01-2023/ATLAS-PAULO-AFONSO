@@ -25,3 +25,4 @@ backend/.env
 data/processed/*.gpkg
 data/processed/*.geojson
 data/processed/*_debug/
+data/processed/comparacao/
