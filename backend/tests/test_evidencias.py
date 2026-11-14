@@ -2,7 +2,7 @@ import geopandas as gpd
 import pandas as pd
 from shapely.geometry import Point, Polygon
 
-import cnefe_rooftop_alg
+import algoritmo_raycast as cnefe_rooftop_alg
 
 
 def test_evidencias_sao_anotadas_sem_mudar_atribuicao_e_lote_discordante_revisa(tmp_path):
