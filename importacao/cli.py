@@ -2,7 +2,7 @@
 de rascunho (DB_NAME_STAGE). Com --promover, copia o resultado para o banco
 de produção (DB_NAME) numa única transação.
 
-Rode sempre com: doppler run -- python import_data.py [--promover]
+Rode sempre com: doppler run -- python importacao/import_data.py [--promover]
 """
 
 import argparse

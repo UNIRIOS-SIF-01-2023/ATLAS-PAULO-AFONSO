@@ -9,7 +9,7 @@ echo "==> 1/4 Credenciais do banco (Doppler)"
 command -v doppler >/dev/null || { echo "ERRO: instale o Doppler CLI"; exit 1; }
 
 echo "==> 2/4 Importação dos dados reais para o MySQL"
-doppler run -- "./.venv/Scripts/python" import_data.py --promover
+doppler run -- "./.venv/Scripts/python" importacao/import_data.py --promover
 
 echo "==> 3/4 Backend (FastAPI em :8000)"
 if curl -sf http://127.0.0.1:8000/ >/dev/null 2>&1; then
