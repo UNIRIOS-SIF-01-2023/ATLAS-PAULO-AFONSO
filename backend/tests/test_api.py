@@ -434,6 +434,71 @@ def test_integracao_bbox_coerente_com_stats():
         FeatureLight.model_validate(f)
 
 
+def test_fetch_stats_sem_bbox_nem_fonte_le_o_resumo(monkeypatch):
+    from contextlib import contextmanager
+
+    chamadas = []
+    linhas = [
+        {"BAIRRO_NOME": "CENTRO", "TIPO_USO": "comercial", "N_EDIFICACOES": 3, "AREA_SOMA_M2": 300},
+        {"BAIRRO_NOME": "CENTRO", "TIPO_USO": "residencial", "N_EDIFICACOES": 1, "AREA_SOMA_M2": 100},
+    ]
+
+    class Cur:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, sql, params): chamadas.append((sql, params))
+        def fetchall(self): return linhas
+
+    class Conn:
+        def cursor(self): return Cur()
+
+    @contextmanager
+    def conn():
+        yield Conn()
+
+    monkeypatch.setattr(db, "connection", conn)
+    r = db.fetch_stats(bairros=["CENTRO"], tipo="comercial")
+    assert len(chamadas) == 1
+    sql, params = chamadas[0]
+    assert "FROM AGG_BAIRRO_TIPO" in sql and "EDIFICACOES E" not in sql
+    assert "BAIRRO_NOME IN (%s)" in sql and "TIPO_USO = %s" in sql
+    assert params == ["CENTRO", "comercial"]
+    assert r == {"total": 4, "by_tipo": {"comercial": 3, "residencial": 1},
+                 "by_bairro": {"CENTRO": 4}, "area_total_m2": 400.0, "area_media_m2": 100.0}
+
+
+def test_fetch_stats_resumo_vazio_nao_divide_por_zero(monkeypatch):
+    from contextlib import contextmanager
+
+    class Cur:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, *a): pass
+        def fetchall(self): return []
+
+    class Conn:
+        def cursor(self): return Cur()
+
+    @contextmanager
+    def conn():
+        yield Conn()
+
+    monkeypatch.setattr(db, "connection", conn)
+    assert db.fetch_stats()["area_media_m2"] is None
+
+
+@pytest.mark.skipif(not _db_vivo(), reason="MariaDB local fora do ar")
+def test_integracao_resumo_bate_com_edificacoes():
+    resumo = db.fetch_stats()
+    # Caixa regional que cobre o município: o globo inteiro volta vazio no MariaDB.
+    direto = db.fetch_stats(bbox=(-39, -10, -37, -9))
+    assert resumo["total"] == direto["total"]
+    assert resumo["by_tipo"] == direto["by_tipo"]
+    assert resumo["by_bairro"] == direto["by_bairro"]
+    assert resumo["area_total_m2"] == pytest.approx(direto["area_total_m2"])
+    assert resumo["area_media_m2"] == pytest.approx(direto["area_media_m2"])
+
+
 # --- Visão afastada e versão dos dados (db mockado) -------------------------
 
 def test_overview_agrupa_por_celula_e_separa_enderecos():

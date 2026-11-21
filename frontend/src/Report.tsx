@@ -57,7 +57,7 @@ export default function Report({ apiUrl, theme = 'dark', onClose }: { apiUrl: st
 
   useEffect(() => {
     const controller = new AbortController();
-    fetchStats(apiUrl, new URLSearchParams({ em_cobertura: 'true' }), controller.signal)
+    fetchStats(apiUrl, new URLSearchParams(), controller.signal)
       .then(setBase)
       .catch((err: unknown) => {
         if (err instanceof DOMException && err.name === 'AbortError') return;
@@ -72,7 +72,7 @@ export default function Report({ apiUrl, theme = 'dark', onClose }: { apiUrl: st
   useEffect(() => {
     if (!base || isDefault) return;
     const controller = new AbortController();
-    const params = new URLSearchParams({ em_cobertura: 'true' });
+    const params = new URLSearchParams();
     if (filtroTipo !== 'todos') params.set('tipo', filtroTipo);
     Object.keys(base.by_bairro)
       .filter((raw) => filtroBairros.includes(normalizarBairro(raw)))

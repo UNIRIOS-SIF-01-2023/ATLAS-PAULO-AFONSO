@@ -368,8 +368,41 @@ def fetch_building_tile(bounds, cancelled=None):
     ]
 
 
+def _stats_agregadas(bairros, tipo):
+    """Sem filtro espacial nem de fonte: lê o resumo AGG_BAIRRO_TIPO (~359 linhas)."""
+    clauses, params = [], []
+    if bairros:
+        clauses.append(f"BAIRRO_NOME IN ({','.join(['%s'] * len(bairros))})")
+        params.extend(bairros)
+    if tipo:
+        clauses.append("TIPO_USO = %s")
+        params.append(tipo)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT BAIRRO_NOME, TIPO_USO, N_EDIFICACOES, AREA_SOMA_M2 "
+            f"FROM AGG_BAIRRO_TIPO {where}", params)
+        rows = cur.fetchall()
+    by_tipo, by_bairro, area = {}, {}, 0.0
+    for r in rows:
+        n = int(r["N_EDIFICACOES"])
+        by_tipo[r["TIPO_USO"]] = by_tipo.get(r["TIPO_USO"], 0) + n
+        by_bairro[r["BAIRRO_NOME"]] = by_bairro.get(r["BAIRRO_NOME"], 0) + n
+        area += float(r["AREA_SOMA_M2"] or 0)
+    total = sum(by_tipo.values())
+    return {
+        "total": total,
+        "by_tipo": by_tipo,
+        "by_bairro": by_bairro,
+        "area_total_m2": area,
+        "area_media_m2": area / total if total else None,
+    }
+
+
 def fetch_stats(bbox=None, bairros=None, tipo=None, fonte=None):
     """Agregados (total, por tipo, por bairro, áreas) com os mesmos filtros."""
+    if bbox is None and fonte is None:
+        return _stats_agregadas(bairros, tipo)
     where, params = build_where(
         bbox=bbox, bairros=bairros, tipo=tipo, fonte=fonte)
     base = f"{FROM_EDIFICACOES} {where}"
