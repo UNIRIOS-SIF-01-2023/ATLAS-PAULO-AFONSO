@@ -680,6 +680,51 @@ def test_tile_afastado_mantem_poligono_dos_predios_grandes(monkeypatch):
     assert main._min_polygon_area(13, -9.4) == pytest.approx(main._min_polygon_area(12, -9.4) / 4)
 
 
+def _sql_capturado(monkeypatch):
+    """db.connection() de mentira que anota o SQL e devolve sempre 0 linhas."""
+    from contextlib import contextmanager
+
+    sqls = []
+
+    class Cur:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, sql, params=None): sqls.append(sql)
+        def fetchall(self): return []
+
+    class Conn:
+        def cursor(self): return Cur()
+
+    @contextmanager
+    def conn():
+        yield Conn()
+
+    monkeypatch.setattr(db, "connection", conn)
+    return sqls
+
+
+def test_consultas_quentes_usam_ponto_rotulo_e_from_enxuto(monkeypatch):
+    sqls = _sql_capturado(monkeypatch)
+
+    db.fetch_centroids()
+    db.fetch_building_tile((-38.23, -9.41, -38.22, -9.40))
+    db.search("centro")
+
+    centroides, tile, predios, bairros = sqls
+    for sql in (centroides, tile):
+        assert "JOIN FONTES F" in sql and "BAIRROS" not in sql and "ORDER BY" not in sql
+    assert "PONTO_ROTULO" in centroides and "ST_Centroid" not in centroides
+    for sql in (predios, bairros):
+        assert "PONTO_ROTULO" in sql and "ST_Centroid" not in sql and "FONTES" not in sql
+    assert "JOIN BAIRROS B" in bairros and "LEFT JOIN BAIRROS" not in bairros
+
+
+@pytest.mark.skipif(not _db_vivo(), reason="MariaDB local fora do ar")
+def test_integracao_centroides_vem_em_lng_lat():
+    for p in db.fetch_centroids()[:200]:
+        assert -39 < p["x"] < -37 and -10 < p["y"] < -9
+
+
 # --- Busca e endereços do prédio ---------------------------------------------
 
 def test_busca_exige_cada_palavra_em_algum_campo_e_escapa_curingas():
