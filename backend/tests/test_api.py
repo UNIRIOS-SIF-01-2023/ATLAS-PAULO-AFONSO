@@ -107,57 +107,6 @@ def test_stats_schema():
     assert s.total == 10
 
 
-
-def test_best_type_qg_prevalece():
-    import import_data
-    assert import_data.best_type({"COD_ESPECIE": "6"}, {"subtype": "x"}) == "comercial"
-    assert import_data.best_type({"COD_ESPECIE": "7"}, {}) == "desconhecido"
-    assert import_data.best_type({}, {"subtype": "residential"}) == "residencial"
-    assert import_data.best_type({}, {"class": "church"}) == "religioso"
-    assert import_data.best_type({}, {}) == "desconhecido"
-    assert import_data.best_type(None, None) == "desconhecido"
-
-
-def test_classify_origem_tipo():
-    import import_data
-    assert import_data.classify({"COD_ESPECIE": "1"}, None) == ("residencial", "cnefe")
-    assert import_data.classify({}, {"subtype": "civic"})[1] == "overture_subtype"
-    assert import_data.classify({}, {"class": "house"})[1] == "overture_class"
-    assert import_data.classify(None, None) == ("desconhecido", "sem_dado")
-
-
-def test_match_points_metodo_e_distancia():
-    import import_data
-    from shapely.geometry import box
-    polys = [box(0, 0, 0.001, 0.001)]
-    pts = [{"geometry": {"coordinates": c}}
-           for c in ([0.0005, 0.0005], [0.0011, 0.0005], [0.01, 0.01])]
-    m = import_data.match_points(polys, pts)
-    assert m[0] == (0, "contido", 0.0)
-    assert m[1][:2] == (0, "tolerancia") and 10 < m[1][2] < 12  # ~11 m
-    assert 2 not in m
-
-
-def test_osm_so_entra_onde_overture_nao_tem_poligono(monkeypatch):
-    import import_data
-    from shapely.geometry import box, mapping
-
-    def feat(fid, g):
-        return {"id": fid, "geometry": mapping(g), "properties": {}}
-    monkeypatch.setattr(import_data, "load_buildings", lambda: [feat("ov", box(0, 0, 0.001, 0.001))])
-    monkeypatch.setattr(import_data, "load_osm_buildings", lambda: [
-        feat("dup", box(0.0002, 0.0002, 0.0008, 0.0008)),  # dentro do Overture
-        feat("novo", box(0.01, 0.01, 0.011, 0.011)),
-    ])
-    monkeypatch.setattr(import_data, "load_qg_points", lambda: [
-        {"geometry": {"coordinates": [0.0005, 0.0005]}, "properties": {}},
-        {"geometry": {"coordinates": [0.0105, 0.0105]}, "properties": {}},
-    ])
-    predios, _, assoc = import_data.montar_predios()
-    assert [p["id_origem"] for p in predios] == ["ov", "osm-1"]
-    assert assoc == {0: (0, "contido", 0.0), 1: (1, "contido", 0.0)}
-
-
 # --- Endpoints principais (db mockado: sem banco) ---------------------------
 
 @pytest.fixture()

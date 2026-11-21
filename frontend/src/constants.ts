@@ -9,8 +9,6 @@ export const TIPOS_ORDEM = [
   'desconhecido',
 ] as const;
 
-export type Tipo = (typeof TIPOS_ORDEM)[number];
-
 export const TIPO_LABEL: Record<string, string> = {
   residencial: 'Residencial',
   comercial: 'Comercial',

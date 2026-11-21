@@ -1,6 +1,6 @@
 """Contratos Pydantic da API (P5). O GeoJSON segue como formato no fio."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field
 
@@ -40,18 +40,6 @@ class FeatureFull(BaseModel):
     id: Any = None
     geometry: Geometry
     properties: BuildingPropertiesFull
-
-
-class FeatureCollectionLight(BaseModel):
-    type: str = "FeatureCollection"
-    name: str = "buildings"
-    features: List[FeatureLight] = Field(default_factory=list)
-
-
-class FeatureCollectionFull(BaseModel):
-    type: str = "FeatureCollection"
-    name: str = "buildings"
-    features: List[FeatureFull] = Field(default_factory=list)
 
 
 class StatsResponse(BaseModel):
