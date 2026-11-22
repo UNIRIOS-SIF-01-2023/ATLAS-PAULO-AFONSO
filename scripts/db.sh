@@ -11,8 +11,16 @@ CONF="$ROOT/scripts/mysql-local.cnf"
 SCHEMA="$ROOT/scripts/schema.sql"
 mkdir -p /tmp/mariadb-tmp
 
+# Senhas vêm do .env da raiz (modelo em .env.example), nunca do código.
+if [ -f "$ROOT/.env" ]; then
+  set -a; . "$ROOT/.env"; set +a
+fi
 DB_PORT="3320"
-ROOT_PASSWORD="ar120604"
+ROOT_PASSWORD="${MARIADB_ROOT_PASSWORD:-}"
+if [ -z "$ROOT_PASSWORD" ] || [ -z "${DB_PASSWORD:-}" ]; then
+  echo "ERRO: defina MARIADB_ROOT_PASSWORD e DB_PASSWORD no .env (veja .env.example)" >&2
+  exit 1
+fi
 
 case "$(uname -s 2>/dev/null || echo Linux)" in
   MINGW*|MSYS*|CYGWIN*|Windows_NT)
@@ -108,12 +116,14 @@ case "${1:-start}" in
     fi
 
     echo "Configurando banco de dados e permissões..."
+    # A senha do usuário atlas vem do .env; aspas simples dobradas para o SQL.
+    SENHA_ATLAS="$(printf '%s' "$DB_PASSWORD" | sed "s/'/''/g")"
     # shellcheck disable=SC2086
-    "$MARIADB_CLIENT" $CLIENT_AUTH <<'SQL'
+    "$MARIADB_CLIENT" $CLIENT_AUTH <<SQL
 CREATE DATABASE IF NOT EXISTS ATLAS       CHARACTER SET UTF8MB4 COLLATE UTF8MB4_0900_AI_CI;
 CREATE DATABASE IF NOT EXISTS ATLAS_STAGE CHARACTER SET UTF8MB4 COLLATE UTF8MB4_0900_AI_CI;
-CREATE USER IF NOT EXISTS 'atlas'@'127.0.0.1' IDENTIFIED BY 'atlas';
-CREATE USER IF NOT EXISTS 'atlas'@'localhost' IDENTIFIED BY 'atlas';
+CREATE USER IF NOT EXISTS 'atlas'@'127.0.0.1' IDENTIFIED BY '$SENHA_ATLAS';
+CREATE USER IF NOT EXISTS 'atlas'@'localhost' IDENTIFIED BY '$SENHA_ATLAS';
 GRANT ALL PRIVILEGES ON atlas_urbano.* TO 'atlas'@'127.0.0.1';
 GRANT ALL PRIVILEGES ON atlas_urbano.* TO 'atlas'@'localhost';
 GRANT ALL PRIVILEGES ON ATLAS.*        TO 'atlas'@'127.0.0.1';
