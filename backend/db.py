@@ -368,6 +368,16 @@ def fetch_building_tile(bounds, cancelled=None):
     ]
 
 
+def fetch_buildings_for_model():
+    """Todos os prédios com o que o classificador de uso precisa (backend/ia)."""
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT E.ID AS id, ST_AsBinary(E.GEOM) AS wkb, E.TIPO_USO AS tipo, "
+            "E.ORIGEM_TIPO AS origem, F.NOME AS fonte, B.NOME AS bairro "
+            f"{FROM_EDIFICACOES} ORDER BY E.ID")
+        return cur.fetchall()
+
+
 def _stats_agregadas(bairros, tipo):
     """Sem filtro espacial nem de fonte: lê o resumo AGG_BAIRRO_TIPO (~359 linhas)."""
     clauses, params = [], []

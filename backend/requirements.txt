@@ -6,3 +6,4 @@ mapbox-vector-tile
 bcrypt
 PyJWT
 python-dotenv
+scikit-learn==1.9.1
