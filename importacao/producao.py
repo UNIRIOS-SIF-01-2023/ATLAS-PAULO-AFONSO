@@ -8,7 +8,7 @@ def colunas_gravaveis(cur, tabela):
     """Colunas não geradas (AREA_M2 e ENDERECOS.TIPO_USO são calculadas)."""
     cur.execute(
         "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s "
-        "AND TABLE_NAME = %s AND GENERATION_EXPRESSION = '' ORDER BY ORDINAL_POSITION",
+        "AND TABLE_NAME = %s AND IS_GENERATED = 'NEVER' ORDER BY ORDINAL_POSITION",
         (config.DB_NAME_STAGE, tabela))
     return ", ".join(r["COLUMN_NAME"] for r in cur.fetchall())
 

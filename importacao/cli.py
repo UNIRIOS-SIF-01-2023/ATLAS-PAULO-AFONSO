@@ -2,7 +2,7 @@
 de rascunho (DB_NAME_STAGE). Com --promover, copia o resultado para o banco
 de produção (DB_NAME) numa única transação.
 
-Rode sempre com: doppler run -- python importacao/import_data.py [--promover]
+Rode com: python importacao/import_data.py [--promover] (lê o .env da raiz)
 """
 
 import argparse
@@ -19,7 +19,7 @@ def main(argv=None):
                     help="após carregar o rascunho, substitui os dados de produção")
     args = ap.parse_args(argv)
     if not (config.DB_NAME and config.DB_NAME_STAGE) or config.DB_NAME == config.DB_NAME_STAGE:
-        raise SystemExit("DB_NAME e DB_NAME_STAGE ausentes ou iguais: use doppler run --")
+        raise SystemExit("DB_NAME e DB_NAME_STAGE ausentes ou iguais: confira o .env (veja .env.example)")
     gravar_stage(*montar_predios())
     if args.promover:
         promover()

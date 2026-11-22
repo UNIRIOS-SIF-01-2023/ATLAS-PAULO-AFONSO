@@ -1,21 +1,25 @@
 #!/usr/bin/env bash
-# Sobe tudo (importação + backend + frontend) e mantém os processos.
+# Sobe tudo (banco + importação + backend + frontend) e mantém os processos.
+# Configuração no .env da raiz (copie o .env.example).
 set -e
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-echo "==> 1/4 Credenciais do banco (Doppler)"
-command -v doppler >/dev/null || { echo "ERRO: instale o Doppler CLI"; exit 1; }
+[ -f .env ] || { echo "ERRO: crie o .env a partir do .env.example"; exit 1; }
+if [ -x ./.venv/Scripts/python ]; then PY=./.venv/Scripts/python; else PY=./.venv/bin/python; fi
 
-echo "==> 2/4 Importação dos dados reais para o MySQL"
-doppler run -- "./.venv/Scripts/python" importacao/import_data.py --promover
+echo "==> 1/4 Banco local (MariaDB na porta 3320)"
+bash scripts/db.sh start
+
+echo "==> 2/4 Importação dos dados reais"
+"$PY" importacao/import_data.py --promover
 
 echo "==> 3/4 Backend (FastAPI em :8000)"
 if curl -sf http://127.0.0.1:8000/ >/dev/null 2>&1; then
   echo "  backend já rodando"
 else
-  nohup doppler run -- ./.venv/bin/python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 \
+  nohup "$PY" -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 \
     > /tmp/atlas-uvicorn.log 2>&1 &
   sleep 3
   echo "  backend OK"

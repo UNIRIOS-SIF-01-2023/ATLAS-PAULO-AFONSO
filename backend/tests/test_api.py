@@ -1,6 +1,6 @@
 """Testes essenciais (P6): só pontos críticos, sem cobertura completa.
 
-Roda com: doppler run -- python -m pytest backend/tests -q
+Roda com: python -m pytest backend/tests -q (lê o .env da raiz)
 (dependências de dev: pytest, httpx)
 """
 

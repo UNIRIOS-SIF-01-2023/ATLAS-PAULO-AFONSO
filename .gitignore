@@ -9,6 +9,7 @@ __pycache__/
 
 # Dados locais (mesmo assim é um protótipo local)
 .mysql-data/
+mariadb-data/
 data/raw/
 
 # Arquivos de dados fornecidos (não fazem parte do projeto)
@@ -36,3 +37,4 @@ MATEMATICA.md
 .env.*
 frontend/.env
 frontend/.env.*
+!.env.example

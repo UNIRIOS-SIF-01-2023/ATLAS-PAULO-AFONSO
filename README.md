@@ -123,11 +123,12 @@ python3 -m venv .venv
 # 2) Instalar o app (uma vez)
 cd frontend && npm install && cd ..
 
-# 3) Tudo de uma vez (usa dados existentes; importe só quando necessário)
+# 3) Configuração (uma vez): copie e preencha DB_PASSWORD e JWT_SECRET
+cp .env.example .env
+
+# 4) Tudo de uma vez (usa dados existentes; importe só quando necessário)
 bash scripts/run.sh
 ```
-
-Para atualizar os dados já importados, rode `bash scripts/run.sh --reimport`.
 
 Ou passo a passo:
 
@@ -135,14 +136,14 @@ Ou passo a passo:
 # (opcional, demora vários minutos) baixa a 2ª fonte de polígonos do OSM
 ./.venv/bin/python scripts/fetch_osm_buildings.py
 
-bash scripts/db.sh start            # sobe o MariaDB local (:3307, db atlas_urbano)
-doppler run -- ./.venv/bin/python import_data.py             # importa para o banco de rascunho
-doppler run -- ./.venv/bin/python import_data.py --promover  # idem e, em seguida, copia para produção
+bash scripts/db.sh start            # sobe o MariaDB local (:3320) e aplica scripts/schema.sql
+./.venv/bin/python importacao/import_data.py             # importa para o banco de rascunho
+./.venv/bin/python importacao/import_data.py --promover  # idem e, em seguida, copia para produção
 ./.venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000 &
 cd frontend && npm run dev -- --port 5173 &
 ```
 
-A carga grava primeiro no banco de rascunho (`DB_NAME_STAGE`). Só com `--promover` os dados são copiados para produção (`DB_NAME`), numa única transação: se algo falhar, a produção fica como estava. Sem as variáveis `DB_NAME` e `DB_NAME_STAGE` definidas e diferentes entre si, a carga aborta; por isso o comando usa `doppler run --`.
+A carga grava primeiro no banco de rascunho (`DB_NAME_STAGE`). Só com `--promover` os dados são copiados para produção (`DB_NAME`), numa única transação: se algo falhar, a produção fica como estava. Sem as variáveis `DB_NAME` e `DB_NAME_STAGE` definidas e diferentes entre si, a carga aborta. Backend, carga e testes leem essas variáveis do `.env` da raiz (modelo em `.env.example`); variáveis já definidas no ambiente têm prioridade.
 
 Abra **http://127.0.0.1:5173/**. Para parar o banco: `bash scripts/db.sh stop`.
 
@@ -150,11 +151,11 @@ Abra **http://127.0.0.1:5173/**. Para parar o banco: `bash scripts/db.sh stop`.
 
 | Serviço | Endereço |
 | --- | --- |
-| MariaDB local | `127.0.0.1:3307` (banco `atlas_urbano`) |
+| MariaDB local | `127.0.0.1:3320` (bancos `ATLAS` e `ATLAS_STAGE`, usuário `atlas`) |
 | Backend FastAPI | `http://127.0.0.1:8000` (docs interativas em `/docs`) |
 | Frontend Vite | `http://127.0.0.1:5173` |
 
-**Logs:** `/tmp/atlas-uvicorn.log` (backend), `/tmp/atlas-vite.log` (frontend) e `.mysql-data/mysql.err` (banco).
+**Logs:** `/tmp/atlas-uvicorn.log` (backend), `/tmp/atlas-vite.log` (frontend) e `mariadb-data/mysql.err` (banco).
 
 **Configuração**
 

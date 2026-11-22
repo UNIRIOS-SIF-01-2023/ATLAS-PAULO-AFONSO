@@ -5,3 +5,4 @@ shapely
 mapbox-vector-tile
 bcrypt
 PyJWT
+python-dotenv

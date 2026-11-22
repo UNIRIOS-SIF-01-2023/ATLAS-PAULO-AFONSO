@@ -1,6 +1,12 @@
-"""Credenciais do banco, injetadas pelo Doppler (`doppler run -- ...`)."""
+"""Configuração lida do ambiente; em desenvolvimento, do arquivo .env na raiz
+(copie o .env.example). Variáveis já definidas no ambiente têm prioridade."""
 
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 DB_HOST = os.getenv("DB_HOST")
 DB_PORT = int(os.getenv("DB_PORT", "3306"))
