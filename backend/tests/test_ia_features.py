@@ -92,3 +92,15 @@ def test_bairro_mais_proximo_sem_nenhum_bairro():
 def test_grupos_espaciais_separam_celulas_de_500m():
     g = grupos_espaciais(np.array([[-38.22, -9.40], [-38.2201, -9.40], [-38.21, -9.40]]))
     assert g[0] == g[1] and g[0] != g[2]
+
+
+def test_de_linhas_mantem_lon_lat_do_mariadb():
+    # O MariaDB devolve o WKB como foi gravado: x = lon, y = lat.
+    from shapely.geometry import box
+    from backend.ia.dados import de_linhas
+
+    base = de_linhas([{"id": 1, "wkb": box(-38.2201, -9.4001, -38.2200, -9.4000).wkb,
+                       "tipo": None, "origem": None, "fonte": "OSM", "bairro": None}])
+    assert base.geoms[0].bounds[0] == pytest.approx(-38.2201)
+    assert base.pontos[0][0] == pytest.approx(-38.22005, abs=1e-4)
+    assert base.tipos == ["desconhecido"]

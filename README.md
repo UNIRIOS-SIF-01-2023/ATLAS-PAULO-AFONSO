@@ -28,13 +28,14 @@ Repositório: <https://github.com/NOXXD-COMPANY/ATLAS-PAULO-AFONSO>
 5. [Arquitetura](#arquitetura)
 6. [API](#api)
 7. [Modelo de dados](#modelo-de-dados)
-8. [Testes](#testes)
-9. [Requisitos e estado de implementação](#requisitos-e-estado-de-implementação)
-10. [Casos de uso](#casos-de-uso)
-11. [Decisões de engenharia](#decisões-de-engenharia)
-12. [Limitações conhecidas](#limitações-conhecidas)
-13. [Roadmap](#roadmap)
-14. [Estrutura do repositório](#estrutura-do-repositório)
+8. [Classificador de uso (IA)](#classificador-de-uso-ia)
+9. [Testes](#testes)
+10. [Requisitos e estado de implementação](#requisitos-e-estado-de-implementação)
+11. [Casos de uso](#casos-de-uso)
+12. [Decisões de engenharia](#decisões-de-engenharia)
+13. [Limitações conhecidas](#limitações-conhecidas)
+14. [Roadmap](#roadmap)
+15. [Estrutura do repositório](#estrutura-do-repositório)
 
 ---
 
@@ -123,7 +124,7 @@ python3 -m venv .venv
 # 2) Instalar o app (uma vez)
 cd frontend && npm install && cd ..
 
-# 3) Configuração (uma vez): copie e preencha DB_PASSWORD e JWT_SECRET
+# 3) Configuração (uma vez): copie e preencha MARIADB_ROOT_PASSWORD, DB_PASSWORD e JWT_SECRET
 cp .env.example .env
 
 # 4) Tudo de uma vez (usa dados existentes; importe só quando necessário)
@@ -444,6 +445,21 @@ Também há um índice `FULLTEXT` em `LOGRADOURO_NUM` e `ESTABELECIMENTO`.
 - **Geometrias em SRID 4674** (SIRGAS 2000): o banco rejeita geometria em outro SRID nas colunas `GEOM`, `PONTO_ROTULO` e `PT`. A área (`AREA_M2`) é calculada pelo próprio banco.
 - **Tipo de uso**: em `ENDERECOS` vem de `COD_ESPECIE`; em `EDIFICACOES` vem da carga (o tipo mais frequente entre os endereços do prédio e, sem endereços, o do Overture/OSM).
 - **Índices espaciais** em `EDIFICACOES.GEOM`, `EDIFICACOES.PONTO_ROTULO` e `ENDERECOS.PT`.
+
+## Classificador de uso (IA)
+
+Cerca de 58% dos prédios (32.071 de 55.255) não têm endereço no CNEFE e ficam com uso `desconhecido`. Um classificador treinado nos prédios rotulados estima o uso desses prédios, com uma confiança para cada previsão.
+
+- **Features** (`backend/ia/features.py`): só o que todo prédio tem, ou seja, a forma do polígono, a fonte do footprint e a vizinhança num raio de até 150 m. Bairro, endereço e pavimentos ficam de fora, porque só os prédios rotulados têm esses dados.
+- **Modelos comparados** (`backend/ia/treino.py`): classe mais frequente e regressão logística (as duas linhas de base), Random Forest e Gradient Boosting. Validação cruzada em 5 folds, estratificada e espacial (células de 500 m), com os rótulos do teste escondidos das features de vizinhança. O modelo final é calibrado (sigmoid).
+- **Primeiras métricas** (relatório completo em [`docs/ia/avaliacao_modelo.md`](docs/ia/avaliacao_modelo.md)): na CV espacial, o melhor Random Forest chega a F1 macro de 0,167, contra 0,137 da classe mais frequente. O modelo acerta residencial (F1 0,96), mas quase não reconhece comercial (recall 0,07) e nunca prevê as classes raras.
+- **Artefatos**: `backend/ia/modelo_uso.joblib` (30 MB, scikit-learn 1.9.1) e `backend/ia/modelo_uso.json` (métricas e versão).
+
+Para treinar de novo (MariaDB no ar e `.env` configurado; leva cerca de 3 minutos):
+
+```bash
+./.venv/bin/python scripts/treinar_uso.py
+```
 
 ## Testes
 

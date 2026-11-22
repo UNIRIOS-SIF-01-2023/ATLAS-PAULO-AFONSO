@@ -175,6 +175,47 @@ ROTULO_MODELO = {"mais_frequente": "Classe mais frequente (baseline)",
                  "random_forest": "Random Forest", "gradient_boosting": "Gradient Boosting"}
 
 
+def _pct(x):
+    return f"{x:.1%}".replace(".", ",")
+
+
+def _dec(x):
+    return f"{x:.3f}".replace(".", ",")
+
+
+def _interpretacao(metricas):
+    """Lê as métricas contra o baseline, como pede o enunciado (5.4)."""
+    final, d = metricas["modelo_final"], metricas["dados"]
+    base = metricas["modelos"]["mais_frequente"]["espacial"]
+    majoritaria = max(d["contagem_por_classe"], key=d["contagem_por_classe"].get)
+    fatia = d["contagem_por_classe"][majoritaria] / d["n_treino"]
+    por_classe = final["por_classe"]
+    fracas = [c for c, v in por_classe.items() if v["f1"] < 0.2]
+    boas = [f"{c} (F1 {_dec(v['f1'])})" for c, v in por_classe.items() if v["f1"] >= 0.2]
+    ganho = final["f1_macro"] - base["f1_macro"]
+    return [
+        "## Interpretação", "",
+        f"- A base é desbalanceada: {majoritaria} é {_pct(fatia)} dos prédios rotulados. Por isso a "
+        f"acurácia engana: um modelo que sempre responde {majoritaria} já acerta {_pct(base['acuracia'])}, "
+        f"e o modelo final acerta {_pct(final['acuracia'])}. O F1 macro, que pesa todas as classes igualmente, "
+        "é a métrica principal.",
+        f"- F1 macro: {_dec(final['f1_macro'])} contra {_dec(base['f1_macro'])} do baseline "
+        f"({'+' if ganho >= 0 else ''}{_dec(ganho)}). "
+        + ("O modelo aprende algo além da classe majoritária, mas o ganho é pequeno." if 0 <= ganho < 0.1
+           else "O modelo supera o baseline com folga." if ganho >= 0.1
+           else "O modelo não supera o baseline."),
+        f"- Classes reconhecidas: {', '.join(boas) or 'nenhuma'}. Classes que o modelo quase não "
+        f"reconhece (F1 < 0,2): {', '.join(fracas) or 'nenhuma'}; na matriz de confusão, a maior parte "
+        f"delas vira {majoritaria}.",
+        "- Para o uso proposto (estimar o uso dos prédios sem endereço e priorizar conferência): "
+        + (f"o resultado ainda não basta para apontar {', '.join(fracas)} com segurança; uma previsão "
+           f"diferente de {majoritaria} é um sinal útil, mas a ausência dela não diz muito, e a confiança "
+           "exibida deve ser lida junto com isso." if fracas else
+           "todas as classes têm F1 de pelo menos 0,2, então a previsão serve como estimativa para "
+           "priorizar a conferência, sempre como estimativa e nunca como dado oficial."), "",
+    ]
+
+
 def _relatorio(payload, metricas, treinado_em):
     m, final, classes = metricas, metricas["modelo_final"], metricas["classes"]
     d = m["dados"]
@@ -217,6 +258,7 @@ def _relatorio(payload, metricas, treinado_em):
         "| Prédio | Oficial | Previsto | Confiança |", "|---|---|---|---|",
         *[f"| {e['id']} | {e['oficial']} | {e['previsto']} | {e['confianca']:.2f} |"
           for e in final["erros_mais_confiantes"]], "",
+        *_interpretacao(m),
         "## Limites", "",
         "- Viés de seleção: os prédios rotulados são justamente os que têm endereço no CNEFE; os sem "
         "endereço podem ter outro perfil (anexos, galpões, área rural). A CV espacial mede isso só em parte.",
@@ -243,5 +285,5 @@ def escrever_saidas(payload: dict, metricas: dict, pasta_modelo: Path, relatorio
         json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8")
     relatorio.write_text(_relatorio(payload, metricas, treinado_em), encoding="utf-8")
     mb = caminho.stat().st_size / 1e6
-    if mb > 10:
-        print(f"AVISO: {caminho} tem {mb:.1f} MB (> 10 MB): não versionar, ver README.")
+    if mb > 50:  # limite do enunciado para versionar o modelo
+        print(f"AVISO: {caminho} tem {mb:.1f} MB (> 50 MB): não versionar, ver README.")

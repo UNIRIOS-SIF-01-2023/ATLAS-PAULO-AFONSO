@@ -81,3 +81,17 @@ def test_escrever_saidas_gera_joblib_json_e_relatorio(tmp_path, base_sintetica, 
     assert info["semente"] == 42 and info["versao"] == payload["versao"]
     texto = relatorio.read_text(encoding="utf-8")
     assert "Matriz de confusão" in texto and "F1" in texto
+
+
+def test_relatorio_interpreta_metricas_contra_o_baseline(tmp_path, base_sintetica, metricas):
+    # Enunciado 5.4: toda métrica precisa de interpretação (acurácia x desbalanceamento).
+    payload = treinar_final(base_sintetica, metricas["melhor"]["params"])
+    relatorio = tmp_path / "avaliacao.md"
+    escrever_saidas(payload, metricas, tmp_path, relatorio)
+    texto = relatorio.read_text(encoding="utf-8")
+    interpretacao = texto.split("## Interpretação", 1)[1].split("\n## ", 1)[0]
+    base = metricas["modelos"]["mais_frequente"]["espacial"]
+    assert f"{base['acuracia']:.1%}".replace(".", ",") in interpretacao
+    assert f"{metricas['modelo_final']['f1_macro']:.3f}".replace(".", ",") in interpretacao
+    fracas = [c for c, v in metricas["modelo_final"]["por_classe"].items() if v["f1"] < 0.2]
+    assert all(c in interpretacao for c in fracas)

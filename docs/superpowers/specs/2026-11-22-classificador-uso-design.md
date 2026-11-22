@@ -81,7 +81,7 @@ Training rows: `ORIGEM_TIPO = 'cnefe'` and `TIPO_USO != 'desconhecido'`. Predict
 - Confidence *(builder's call, 2026-11-22)*: the deployed model is wrapped in `CalibratedClassifierCV` (grouped folds), so "72 %" means roughly "right 72 % of the time" and the predicted counts aren't inflated by the balanced class weights. The metrics file reports calibration (Brier score per class / reliability numbers) next to F1.
 - Improvement experiment: compare the four models, then a small hyperparameter search on the best one (grouped CV, macro-F1).
 - Error analysis: confusion matrix discussion + a sample of the most confident wrong predictions.
-- Output: `backend/ia/modelo_uso.joblib` (pipeline + class list + feature names + model version string) and `backend/ia/modelo_uso.json` (metrics, class counts, training date, seed, data version). Both committed if the joblib is ≤ ~10 MB; otherwise gitignored and the README explains how to train.
+- Output: `backend/ia/modelo_uso.joblib` (pipeline + class list + feature names + model version string) and `backend/ia/modelo_uso.json` (metrics, class counts, training date, seed, data version). Both committed if the joblib is ≤ 50 MB (the course limit); otherwise gitignored and the README explains how to train.
 - New dependency: `scikit-learn` in `backend/requirements.txt` (brings `joblib`).
 
 ### 3. API — `backend/ia/modelo.py` + routes in `backend/main.py`

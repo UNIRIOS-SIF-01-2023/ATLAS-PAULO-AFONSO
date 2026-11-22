@@ -1,7 +1,7 @@
 """Treina o classificador de uso com os dados do banco e grava modelo, métricas e relatório.
 
 Uso (na raiz do repositório):
-    doppler run -- ./.venv/Scripts/python scripts/treinar_uso.py
+    ./.venv/Scripts/python scripts/treinar_uso.py
 """
 
 import sys

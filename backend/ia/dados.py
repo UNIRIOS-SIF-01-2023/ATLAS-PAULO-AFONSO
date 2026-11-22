@@ -21,9 +21,8 @@ class Base:
 
 def de_linhas(rows: list[dict]) -> Base:
     """Saída de db.fetch_buildings_for_model() -> Base."""
-    # SRID 4674 guarda lat/lon; como em db.fetch_building_tile, invertemos para lon/lat.
-    geoms = shapely.transform(shapely.from_wkb([r["wkb"] for r in rows]), lambda c: c[:, ::-1])
-    geoms = np.asarray(geoms, dtype=object)
+    # O MariaDB devolve o WKB como foi gravado: x = lon, y = lat.
+    geoms = np.asarray(shapely.from_wkb([r["wkb"] for r in rows]), dtype=object)
     return Base(
         ids=np.array([int(r["id"]) for r in rows], dtype=np.int64),
         geoms=geoms,
