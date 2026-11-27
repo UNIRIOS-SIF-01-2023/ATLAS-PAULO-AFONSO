@@ -30,8 +30,9 @@ import {
 } from './mapLayers';
 import { countFootprints, countOverviewCells, legendSource, OVERVIEW_LEVELS, type Bounds, type MapMeta } from './mapTiles';
 import { BuildingCard, type BuildingProps } from './components/BuildingCard';
+import { SobreModelo } from './components/SobreModelo';
 import { AuthBox, AuthScreen, type AuthUser } from './components/AuthBox';
-import { authHeaders, guardarSessao, lerSessao, limparSessao } from './session';
+import { authHeaders, guardarSessao, lerSessao, limparSessao, revalidarSessao } from './session';
 import { Icon } from './components/Icon';
 import { LayersPanel } from './components/LayersPanel';
 import { MapControls } from './components/MapControls';
@@ -178,16 +179,7 @@ export default function App() {
   const [soDoSelecionado, setSoDoSelecionado] = useState(false);
   const [hiddenTipos, setHiddenTipos] = useState<ReadonlySet<string>>(new Set());
   const [showReport, setShowReport] = useState(false);
-  const [showRooftop, setShowRooftop] = useState(ROOFTOP_ONLY);
-  const [rooftopOptions, setRooftopOptions] = useState<RooftopOptions>(defaultRooftopOptions);
-  // Comparação no modo debug: endereços ORIGINAIS do CNEFE por cima do rooftop.
-  const [showCnefe, setShowCnefe] = useState(false);
-  const [rooftopMeta, setRooftopMeta] = useState<MapMeta | null>(null);
-  const [rooftopSelection, setRooftopSelection] = useState<RooftopSelection | null>(null);
-  const rooftopOptionsRef = useRef(rooftopOptions);
-  useEffect(() => {
-    rooftopOptionsRef.current = rooftopOptions;
-  }, [rooftopOptions]);
+  const [showSobreModelo, setShowSobreModelo] = useState(false);
   // O mapa cujo estilo terminou de carregar / que já tem as camadas de dados.
   // Guardar a instância, e não um booleano, evita usar um mapa novo (recriado
   // no hot reload) antes de o estilo dele carregar.
@@ -217,19 +209,16 @@ export default function App() {
       return;
     }
     const controller = new AbortController();
-    fetch(`${API_URL}/api/auth/eu`, {
-      headers: { Authorization: `Bearer ${sessao.token}` },
-      signal: controller.signal,
-    })
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json();
-      })
-      .then((u) => setUser(u))
-      .catch(() => {
+    revalidarSessao(API_URL, sessao.token, controller.signal)
+      .then((u) => {
+        if (u) {
+          setUser(u);
+          return;
+        }
         limparSessao();
         setUser(null);
       })
+      .catch(() => { /* cancelado: a sessão continua guardada */ })
       .finally(() => setSessaoPronta(true));
     return () => controller.abort();
   }, []);
@@ -739,13 +728,14 @@ export default function App() {
         setSheetOpen(true);
         searchRef.current?.focus();
       } else if (event.key === 'Escape' && !typing) {
-        if (showReport) setShowReport(false);
+        if (showSobreModelo) setShowSobreModelo(false);
+        else if (showReport) setShowReport(false);
         else if (selectedId) closeSelection();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [showReport, selectedId, closeSelection]);
+  }, [showSobreModelo, showReport, selectedId, closeSelection]);
 
   // Sem JWT válido, nem o mapa monta: a tela de login não tem saída.
   if (!sessaoPronta) {
@@ -893,6 +883,8 @@ export default function App() {
               heightM={height}
               heightEstimated={heightEstimated}
               theme={theme}
+              apiUrl={API_URL}
+              onSobreModelo={() => setShowSobreModelo(true)}
               onClose={closeSelection}
               onCenter={() => selectedCenter && mapRef.current?.flyTo({ center: selectedCenter, zoom: Math.max(mapRef.current.getZoom(), ZOOM_PREDIO), padding: panelPadding(), essential: true })}
               onSelectAddress={(id) => select(id, selected3dFeature)}
@@ -913,11 +905,7 @@ export default function App() {
               soDoSelecionado={soDoSelecionado}
               onSoDoSelecionado={setSoDoSelecionado}
               hasSelection={Boolean(selectedId)}
-              showRooftop={showRooftop}
-              onShowRooftop={toggleRooftop}
-              rooftopMeta={rooftopMeta}
-              rooftopOptions={rooftopOptions}
-              onRooftopOptions={setRooftopOptions}
+              onSobreModelo={() => setShowSobreModelo(true)}
             />
           )}
         </div>
@@ -960,6 +948,8 @@ export default function App() {
           <Report apiUrl={API_URL} theme={theme} onClose={() => setShowReport(false)} />
         </Suspense>
       )}
+
+      {showSobreModelo && <SobreModelo apiUrl={API_URL} onClose={() => setShowSobreModelo(false)} />}
     </div>
   );
 }

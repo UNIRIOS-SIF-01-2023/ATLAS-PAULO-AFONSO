@@ -1,44 +1,19 @@
 #!/usr/bin/env bash
-# Sobe tudo (importação + backend + frontend) e mantém os processos.
+# Sobe tudo (banco + importação + backend + frontend) e mantém os processos.
+# Configuração no .env da raiz (copie o .env.example).
 set -e
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-# venv do Windows (Scripts/) ou do Linux/macOS (bin/).
-PY="./.venv/Scripts/python"
-[ -x "$PY" ] || [ -x "$PY.exe" ] || PY="./.venv/bin/python"
+[ -f .env ] || { echo "ERRO: crie o .env a partir do .env.example"; exit 1; }
+if [ -x ./.venv/Scripts/python ]; then PY=./.venv/Scripts/python; else PY=./.venv/bin/python; fi
 
-echo "==> 1/5 Credenciais do banco (Doppler)"
-command -v doppler >/dev/null || { echo "ERRO: instale o Doppler CLI"; exit 1; }
+echo "==> 1/4 Banco local (MariaDB na porta 3320)"
+bash scripts/db.sh start
 
-echo "==> 2/5 Camada rooftop (cnefe_rooftop.py -> algoritmo_raycast)"
-QG="data/raw/qg/qg_810_endereco_Munic2924009.json"
-if [ "${1:-}" = "--rooftop" ]; then
-  WANT_ROOFTOP=1
-elif [ ! -f data/processed/pontos_rooftop.geojson ]; then
-  WANT_ROOFTOP=1
-else
-  WANT_ROOFTOP=0
-fi
-if [ "$WANT_ROOFTOP" = "1" ]; then
-  if [ -f "$QG" ]; then
-    EXTRA=""
-    [ -f data/raw/ibge/faces/ba/BA/2924009_faces_de_logradouros_2022.shp ] && \
-      EXTRA="$EXTRA --faces-ibge data/raw/ibge/faces/ba/BA/2924009_faces_de_logradouros_2022.shp"
-    [ -f data/raw/osm/osm_enderecos_paulo_afonso.geojson ] && \
-      EXTRA="$EXTRA --osm-numeros data/raw/osm/osm_enderecos_paulo_afonso.geojson"
-    doppler run -- "$PY" cnefe_rooftop.py "$QG" mysql data/processed/pontos_rooftop.gpkg \
-      --debug \
-      --web-geojson data/processed/pontos_rooftop.geojson \
-      --web-poligonos data/processed/pontos_rooftop_poligonos.geojson \
-      $EXTRA
-  else
-    echo "  (QG do CNEFE ausente em $QG, pulando geração da camada rooftop)"
-  fi
-else
-  echo "  data/processed/pontos_rooftop.geojson já existe (use --rooftop para regenerar)"
-fi
+echo "==> 2/4 Importação dos dados reais"
+"$PY" importacao/import_data.py --promover
 
 echo "==> 3/5 Importação dos dados reais para o MySQL"
 doppler run -- "$PY" import_data.py --promover
@@ -47,7 +22,7 @@ echo "==> 4/5 Backend (FastAPI em :8000)"
 if curl -sf http://127.0.0.1:8000/ >/dev/null 2>&1; then
   echo "  backend já rodando"
 else
-  nohup doppler run -- ./.venv/bin/python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 \
+  nohup "$PY" -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 \
     > /tmp/atlas-uvicorn.log 2>&1 &
   sleep 3
   echo "  backend OK"

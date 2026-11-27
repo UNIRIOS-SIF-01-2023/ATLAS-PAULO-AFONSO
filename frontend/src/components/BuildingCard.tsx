@@ -1,6 +1,31 @@
+import { useEffect, useState } from 'react';
 import { corDoTipo, FONTE_PONTO, rotuloDoTipo, type Theme } from '../constants';
 import { formatArea, formatNumber, titleCase } from '../format';
+import { authHeaders } from '../session';
 import { Icon } from './Icon';
+
+type Previsao = { id: string; tipo: string | null; confianca: number | null } | { id: string; erro: string };
+
+/** POST /api/predict-uso: o backend roda o classificador (backend/ia). */
+async function preverUso(apiUrl: string, id: string, signal: AbortSignal): Promise<Previsao> {
+  let response: Response;
+  try {
+    response = await fetch(`${apiUrl}/api/predict-uso`, {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ id }),
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') throw err;
+    return { id, erro: 'Sem conexão com o servidor para estimar o uso.' };
+  }
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return { id, erro: typeof body.detail === 'string' ? body.detail : `Erro ${response.status} ao estimar o uso.` };
+  }
+  return { id, tipo: body.tipo_previsto ?? null, confianca: body.confianca ?? null };
+}
 
 export interface BuildingAddress {
   id: string;
@@ -29,14 +54,28 @@ interface Props {
   heightM: number;
   heightEstimated: boolean;
   theme?: Theme;
+  apiUrl: string;
+  onSobreModelo: () => void;
   onClose: () => void;
   onCenter: () => void;
   onSelectAddress: (id: string) => void;
   onCopy: (text: string, label: string) => void;
 }
 
-export function BuildingCard({ building, previewTipo, center, heightM, heightEstimated, theme = 'dark', ...actions }: Props) {
+export function BuildingCard({ building, previewTipo, center, heightM, heightEstimated, theme = 'dark', apiUrl, ...actions }: Props) {
   const tipo = building?.tipo ?? previewTipo ?? 'desconhecido';
+  const semUsoOficial = building?.tipo === 'desconhecido';
+  const [previsao, setPrevisao] = useState<Previsao | null>(null);
+  const buildingId = building?.id;
+
+  useEffect(() => {
+    if (!buildingId || !semUsoOficial) return;
+    const controller = new AbortController();
+    preverUso(apiUrl, buildingId, controller.signal).then(setPrevisao).catch(() => {});
+    return () => controller.abort();
+  }, [apiUrl, buildingId, semUsoOficial]);
+
+  const atual = previsao?.id === buildingId ? previsao : null;
   const title = titleCase(building?.estabelecimento || building?.endereco) || (building ? 'Edificação sem endereço' : 'Carregando…');
   const subtitle = building?.estabelecimento ? titleCase(building.endereco) : null;
   const semPredio = building?.fonte === FONTE_PONTO;
@@ -63,6 +102,29 @@ export function BuildingCard({ building, previewTipo, center, heightM, heightEst
       <h2 className="building-title">{title}</h2>
       {subtitle && <p className="building-sub">{subtitle}</p>}
       <p className="building-sub muted">{building ? titleCase(building.bairro) || 'Bairro não informado' : ' '}</p>
+
+      {semUsoOficial && (
+        <section className="option-card ia-card" aria-live="polite">
+          <h3 className="section-label">Uso estimado por IA</h3>
+          {!atual ? (
+            <p className="muted">Estimando o uso…</p>
+          ) : 'erro' in atual ? (
+            <p className="ia-erro" role="alert">{atual.erro}</p>
+          ) : atual.tipo ? (
+            <p className="ia-linha">
+              <span className="tipo-pill" style={{ ['--tipo' as string]: corDoTipo(atual.tipo, theme) }}>
+                <span className="swatch" />
+                {rotuloDoTipo(atual.tipo)}
+              </span>
+              <span className="ia-badge">Previsto por IA · {Math.round((atual.confianca ?? 0) * 100)}%</span>
+            </p>
+          ) : (
+            <p className="muted">Sem estimativa para este prédio.</p>
+          )}
+          <p className="muted small">Uso oficial: não identificado (sem endereço no CNEFE). É uma estimativa, não um dado oficial.</p>
+          <button type="button" className="link-button" onClick={actions.onSobreModelo}>Sobre o modelo</button>
+        </section>
+      )}
 
       {building && (
         <>

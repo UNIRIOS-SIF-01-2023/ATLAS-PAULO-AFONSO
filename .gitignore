@@ -9,11 +9,17 @@ __pycache__/
 
 # Dados locais (mesmo assim é um protótipo local)
 .mysql-data/
-data/raw/
+mariadb-data/
+
+# Dados brutos: os arquivos que a carga lê (importacao/config.py) vão para o GitHub
+# (ver datasets/README.md). Ficam fora o zip do CNEFE, a cópia em cnefe_json/ e o
+# projeto do QGIS.
+data/raw/cnefe/
+data/raw/cnefe_json/
+data/raw/qgis/
 
 # Arquivos de dados fornecidos (não fazem parte do projeto)
 overture-*.zip
-qg_*.json*
 
 # Node
 frontend/node_modules/
@@ -37,9 +43,11 @@ MATEMATICA.md
 backend/.env
 frontend/.env
 frontend/.env.*
+!.env.example
 
-# Saídas locais do CNEFE rooftop (dados derivados, não versionados)
-data/processed/*.gpkg
-data/processed/*.geojson
-data/processed/*_debug/
-data/processed/comparacao/
+# Ambientes virtuais e dependências (qualquer nome/pasta)
+venv/
+node_modules/
+
+#Claude
+.claude/

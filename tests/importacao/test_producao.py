@@ -8,6 +8,10 @@ def test_colunas_gravaveis_junta_nomes(conexao_falsa):
     conn = conexao_falsa()
     with conn.cursor() as cur:
         assert colunas_gravaveis(cur, "FONTES") == "ID, NOME"
+    # No MariaDB a coluna comum tem GENERATION_EXPRESSION NULL, não '':
+    # o filtro tem que ser por IS_GENERATED.
+    sql = conn.sqls()[-1]
+    assert "IS_GENERATED = 'NEVER'" in sql and "GENERATION_EXPRESSION" not in sql
 
 
 def test_promover_aborta_com_rascunho_vazio(conexao_falsa):

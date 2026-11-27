@@ -1,6 +1,6 @@
 """Testes essenciais (P6): só pontos críticos, sem cobertura completa.
 
-Roda com: doppler run -- python -m pytest backend/tests -q
+Roda com: python -m pytest tests -q (lê o .env da raiz)
 (dependências de dev: pytest, httpx)
 """
 
@@ -105,57 +105,6 @@ def test_stats_schema():
         "area_total_m2": 1000.0, "area_media_m2": 100.0,
     })
     assert s.total == 10
-
-
-
-def test_best_type_qg_prevalece():
-    import import_data
-    assert import_data.best_type({"COD_ESPECIE": "6"}, {"subtype": "x"}) == "comercial"
-    assert import_data.best_type({"COD_ESPECIE": "7"}, {}) == "desconhecido"
-    assert import_data.best_type({}, {"subtype": "residential"}) == "residencial"
-    assert import_data.best_type({}, {"class": "church"}) == "religioso"
-    assert import_data.best_type({}, {}) == "desconhecido"
-    assert import_data.best_type(None, None) == "desconhecido"
-
-
-def test_classify_origem_tipo():
-    import import_data
-    assert import_data.classify({"COD_ESPECIE": "1"}, None) == ("residencial", "cnefe")
-    assert import_data.classify({}, {"subtype": "civic"})[1] == "overture_subtype"
-    assert import_data.classify({}, {"class": "house"})[1] == "overture_class"
-    assert import_data.classify(None, None) == ("desconhecido", "sem_dado")
-
-
-def test_match_points_metodo_e_distancia():
-    import import_data
-    from shapely.geometry import box
-    polys = [box(0, 0, 0.001, 0.001)]
-    pts = [{"geometry": {"coordinates": c}}
-           for c in ([0.0005, 0.0005], [0.0011, 0.0005], [0.01, 0.01])]
-    m = import_data.match_points(polys, pts)
-    assert m[0] == (0, "contido", 0.0)
-    assert m[1][:2] == (0, "tolerancia") and 10 < m[1][2] < 12  # ~11 m
-    assert 2 not in m
-
-
-def test_osm_so_entra_onde_overture_nao_tem_poligono(monkeypatch):
-    import import_data
-    from shapely.geometry import box, mapping
-
-    def feat(fid, g):
-        return {"id": fid, "geometry": mapping(g), "properties": {}}
-    monkeypatch.setattr(import_data, "load_buildings", lambda: [feat("ov", box(0, 0, 0.001, 0.001))])
-    monkeypatch.setattr(import_data, "load_osm_buildings", lambda: [
-        feat("dup", box(0.0002, 0.0002, 0.0008, 0.0008)),  # dentro do Overture
-        feat("novo", box(0.01, 0.01, 0.011, 0.011)),
-    ])
-    monkeypatch.setattr(import_data, "load_qg_points", lambda: [
-        {"geometry": {"coordinates": [0.0005, 0.0005]}, "properties": {}},
-        {"geometry": {"coordinates": [0.0105, 0.0105]}, "properties": {}},
-    ])
-    predios, _, assoc = import_data.montar_predios()
-    assert [p["id_origem"] for p in predios] == ["ov", "osm-1"]
-    assert assoc == {0: (0, "contido", 0.0), 1: (1, "contido", 0.0)}
 
 
 # --- Endpoints principais (db mockado: sem banco) ---------------------------
@@ -485,31 +434,69 @@ def test_integracao_bbox_coerente_com_stats():
         FeatureLight.model_validate(f)
 
 
-# --- Cobertura: esconder bolinhas fora da janela com polígonos ---------------
+def test_fetch_stats_sem_bbox_nem_fonte_le_o_resumo(monkeypatch):
+    from contextlib import contextmanager
 
-def test_build_where_em_cobertura():
-    clause, params = db.build_where(em_cobertura=True)
-    assert "QG/CNEFE" in params
-    assert "MBRIntersects" in clause
+    chamadas = []
+    linhas = [
+        {"BAIRRO_NOME": "CENTRO", "TIPO_USO": "comercial", "N_EDIFICACOES": 3, "AREA_SOMA_M2": 300},
+        {"BAIRRO_NOME": "CENTRO", "TIPO_USO": "residencial", "N_EDIFICACOES": 1, "AREA_SOMA_M2": 100},
+    ]
+
+    class Cur:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, sql, params): chamadas.append((sql, params))
+        def fetchall(self): return linhas
+
+    class Conn:
+        def cursor(self): return Cur()
+
+    @contextmanager
+    def conn():
+        yield Conn()
+
+    monkeypatch.setattr(db, "connection", conn)
+    r = db.fetch_stats(bairros=["CENTRO"], tipo="comercial")
+    assert len(chamadas) == 1
+    sql, params = chamadas[0]
+    assert "FROM AGG_BAIRRO_TIPO" in sql and "EDIFICACOES E" not in sql
+    assert "BAIRRO_NOME IN (%s)" in sql and "TIPO_USO = %s" in sql
+    assert params == ["CENTRO", "comercial"]
+    assert r == {"total": 4, "by_tipo": {"comercial": 3, "residencial": 1},
+                 "by_bairro": {"CENTRO": 4}, "area_total_m2": 400.0, "area_media_m2": 100.0}
 
 
-def test_build_where_em_cobertura_combina_com_bbox():
-    clause, params = db.build_where(
-        bbox=(-38.24, -9.41, -38.21, -9.39), em_cobertura=True)
-    assert clause.count("MBRIntersects") == 2
-    assert params[-2] == "QG/CNEFE"
+def test_fetch_stats_resumo_vazio_nao_divide_por_zero(monkeypatch):
+    from contextlib import contextmanager
+
+    class Cur:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, *a): pass
+        def fetchall(self): return []
+
+    class Conn:
+        def cursor(self): return Cur()
+
+    @contextmanager
+    def conn():
+        yield Conn()
+
+    monkeypatch.setattr(db, "connection", conn)
+    assert db.fetch_stats()["area_media_m2"] is None
 
 
 @pytest.mark.skipif(not _db_vivo(), reason="MariaDB local fora do ar")
-def test_integracao_em_cobertura_remove_so_bolinhas_fora():
-    # Cobertura municipal: todo o recorte importado deve entrar no filtro.
-    total = db.fetch_stats()["total"]
-    filtrado = db.fetch_stats(em_cobertura=True)["total"]
-    assert total > 0
-    assert filtrado == total
-    feats = db.fetch_all_buildings(em_cobertura=True, limit=20000)
-    assert len(feats) == min(20000, total)  # primeira página cheia: sem furo
-
+def test_integracao_resumo_bate_com_edificacoes():
+    resumo = db.fetch_stats()
+    # Caixa regional que cobre o município: o globo inteiro volta vazio no MariaDB.
+    direto = db.fetch_stats(bbox=(-39, -10, -37, -9))
+    assert resumo["total"] == direto["total"]
+    assert resumo["by_tipo"] == direto["by_tipo"]
+    assert resumo["by_bairro"] == direto["by_bairro"]
+    assert resumo["area_total_m2"] == pytest.approx(direto["area_total_m2"])
+    assert resumo["area_media_m2"] == pytest.approx(direto["area_media_m2"])
 
 
 # --- Visão afastada e versão dos dados (db mockado) -------------------------
@@ -691,6 +678,51 @@ def test_tile_afastado_mantem_poligono_dos_predios_grandes(monkeypatch):
     assert [f["properties"]["id"] for f in tile["dots"]["features"]] == ["pequeno"]
     # O limite cai pela metade da largura a cada nível de zoom.
     assert main._min_polygon_area(13, -9.4) == pytest.approx(main._min_polygon_area(12, -9.4) / 4)
+
+
+def _sql_capturado(monkeypatch):
+    """db.connection() de mentira que anota o SQL e devolve sempre 0 linhas."""
+    from contextlib import contextmanager
+
+    sqls = []
+
+    class Cur:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, sql, params=None): sqls.append(sql)
+        def fetchall(self): return []
+
+    class Conn:
+        def cursor(self): return Cur()
+
+    @contextmanager
+    def conn():
+        yield Conn()
+
+    monkeypatch.setattr(db, "connection", conn)
+    return sqls
+
+
+def test_consultas_quentes_usam_ponto_rotulo_e_from_enxuto(monkeypatch):
+    sqls = _sql_capturado(monkeypatch)
+
+    db.fetch_centroids()
+    db.fetch_building_tile((-38.23, -9.41, -38.22, -9.40))
+    db.search("centro")
+
+    centroides, tile, predios, bairros = sqls
+    for sql in (centroides, tile):
+        assert "JOIN FONTES F" in sql and "BAIRROS" not in sql and "ORDER BY" not in sql
+    assert "PONTO_ROTULO" in centroides and "ST_Centroid" not in centroides
+    for sql in (predios, bairros):
+        assert "PONTO_ROTULO" in sql and "ST_Centroid" not in sql and "FONTES" not in sql
+    assert "JOIN BAIRROS B" in bairros and "LEFT JOIN BAIRROS" not in bairros
+
+
+@pytest.mark.skipif(not _db_vivo(), reason="MariaDB local fora do ar")
+def test_integracao_centroides_vem_em_lng_lat():
+    for p in db.fetch_centroids()[:200]:
+        assert -39 < p["x"] < -37 and -10 < p["y"] < -9
 
 
 # --- Busca e endereços do prédio ---------------------------------------------

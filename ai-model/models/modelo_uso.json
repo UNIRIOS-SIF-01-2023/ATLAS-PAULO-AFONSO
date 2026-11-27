@@ -1,0 +1,1251 @@
+{
+  "versao": "uso-20261122-a82af781",
+  "treinado_em": "2026-11-22T20:46:01+00:00",
+  "semente": 42,
+  "params": {
+    "modelo": "random_forest",
+    "n_estimators": 200,
+    "min_samples_leaf": 3
+  },
+  "raios": {
+    "perto_m": 50,
+    "vizinhanca_m": 150,
+    "celula_grupo_m": 500
+  },
+  "contagem_por_classe": {
+    "residencial": 21368,
+    "religioso": 79,
+    "comercial": 1522,
+    "institucional": 53,
+    "hospedagem": 15,
+    "servico": 37,
+    "agropecuario": 41
+  },
+  "metricas": {
+    "classes": [
+      "residencial",
+      "comercial",
+      "servico",
+      "religioso",
+      "institucional",
+      "hospedagem",
+      "agropecuario"
+    ],
+    "dados": {
+      "n_total": 55255,
+      "n_treino": 23115,
+      "n_previsao": 32071,
+      "contagem_por_classe": {
+        "residencial": 21368,
+        "religioso": 79,
+        "comercial": 1522,
+        "institucional": 53,
+        "hospedagem": 15,
+        "servico": 37,
+        "agropecuario": 41
+      }
+    },
+    "modelos": {
+      "mais_frequente": {
+        "estratificada": {
+          "f1_macro": 0.1372466528143978,
+          "acuracia": 0.9244213714038503,
+          "por_classe": {
+            "residencial": {
+              "precisao": 0.9244213714038503,
+              "recall": 1.0,
+              "f1": 0.9607265697007845,
+              "suporte": 21368
+            },
+            "comercial": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 1522
+            },
+            "servico": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 37
+            },
+            "religioso": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 79
+            },
+            "institucional": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 53
+            },
+            "hospedagem": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 15
+            },
+            "agropecuario": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 41
+            }
+          },
+          "matriz_confusao": [
+            [
+              21368,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              1522,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              37,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              79,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              53,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              15,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              41,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "espacial": {
+          "f1_macro": 0.1372466528143978,
+          "acuracia": 0.9244213714038503,
+          "por_classe": {
+            "residencial": {
+              "precisao": 0.9244213714038503,
+              "recall": 1.0,
+              "f1": 0.9607265697007845,
+              "suporte": 21368
+            },
+            "comercial": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 1522
+            },
+            "servico": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 37
+            },
+            "religioso": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 79
+            },
+            "institucional": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 53
+            },
+            "hospedagem": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 15
+            },
+            "agropecuario": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 41
+            }
+          },
+          "matriz_confusao": [
+            [
+              21368,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              1522,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              37,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              79,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              53,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              15,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              41,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        }
+      },
+      "regressao_logistica": {
+        "estratificada": {
+          "f1_macro": 0.1392836290297997,
+          "acuracia": 0.45701925156824574,
+          "por_classe": {
+            "residencial": {
+              "precisao": 0.9670180868555953,
+              "recall": 0.46789591913141143,
+              "f1": 0.6306493834169111,
+              "suporte": 21368
+            },
+            "comercial": {
+              "precisao": 0.22588020118884317,
+              "recall": 0.32457293035479634,
+              "f1": 0.26637907791857646,
+              "suporte": 1522
+            },
+            "servico": {
+              "precisao": 0.005363528009535161,
+              "recall": 0.24324324324324326,
+              "f1": 0.010495626822157435,
+              "suporte": 37
+            },
+            "religioso": {
+              "precisao": 0.00522029651284193,
+              "recall": 0.31645569620253167,
+              "f1": 0.010271158586688579,
+              "suporte": 79
+            },
+            "institucional": {
+              "precisao": 0.004329004329004329,
+              "recall": 0.09433962264150944,
+              "f1": 0.008278145695364239,
+              "suporte": 53
+            },
+            "hospedagem": {
+              "precisao": 0.0011933174224343676,
+              "recall": 0.13333333333333333,
+              "f1": 0.002365464222353637,
+              "suporte": 15
+            },
+            "agropecuario": {
+              "precisao": 0.024012393493415957,
+              "recall": 0.7560975609756098,
+              "f1": 0.046546546546546545,
+              "suporte": 41
+            }
+          },
+          "matriz_confusao": [
+            [
+              9998,
+              1669,
+              1486,
+              4529,
+              944,
+              1558,
+              1184
+            ],
+            [
+              304,
+              494,
+              159,
+              220,
+              183,
+              98,
+              64
+            ],
+            [
+              4,
+              3,
+              9,
+              6,
+              7,
+              6,
+              2
+            ],
+            [
+              26,
+              4,
+              7,
+              25,
+              10,
+              3,
+              4
+            ],
+            [
+              3,
+              12,
+              14,
+              6,
+              5,
+              8,
+              5
+            ],
+            [
+              2,
+              2,
+              3,
+              1,
+              4,
+              2,
+              1
+            ],
+            [
+              2,
+              3,
+              0,
+              2,
+              2,
+              1,
+              31
+            ]
+          ]
+        },
+        "espacial": {
+          "f1_macro": 0.12080551985400234,
+          "acuracia": 0.40285528877352367,
+          "por_classe": {
+            "residencial": {
+              "precisao": 0.9636523846238573,
+              "recall": 0.40944402845376265,
+              "f1": 0.5747035832758564,
+              "suporte": 21368
+            },
+            "comercial": {
+              "precisao": 0.13486842105263158,
+              "recall": 0.3232588699080158,
+              "f1": 0.19032882011605415,
+              "suporte": 1522
+            },
+            "servico": {
+              "precisao": 0.005808325266214908,
+              "recall": 0.16216216216216217,
+              "f1": 0.011214953271028037,
+              "suporte": 37
+            },
+            "religioso": {
+              "precisao": 0.0028919644701507954,
+              "recall": 0.17721518987341772,
+              "f1": 0.005691056910569106,
+              "suporte": 79
+            },
+            "institucional": {
+              "precisao": 0.0062622309197651665,
+              "recall": 0.3018867924528302,
+              "f1": 0.012269938650306749,
+              "suporte": 53
+            },
+            "hospedagem": {
+              "precisao": 0.004219409282700422,
+              "recall": 0.13333333333333333,
+              "f1": 0.0081799591002045,
+              "suporte": 15
+            },
+            "agropecuario": {
+              "precisao": 0.022222222222222223,
+              "recall": 0.8048780487804879,
+              "f1": 0.04325032765399738,
+              "suporte": 41
+            }
+          },
+          "matriz_confusao": [
+            [
+              8749,
+              3119,
+              925,
+              4537,
+              2250,
+              419,
+              1369
+            ],
+            [
+              299,
+              492,
+              92,
+              277,
+              245,
+              48,
+              69
+            ],
+            [
+              2,
+              5,
+              6,
+              4,
+              15,
+              3,
+              2
+            ],
+            [
+              24,
+              13,
+              4,
+              14,
+              16,
+              2,
+              6
+            ],
+            [
+              2,
+              17,
+              4,
+              9,
+              16,
+              0,
+              5
+            ],
+            [
+              2,
+              1,
+              2,
+              0,
+              7,
+              2,
+              1
+            ],
+            [
+              1,
+              1,
+              0,
+              0,
+              6,
+              0,
+              33
+            ]
+          ]
+        }
+      },
+      "random_forest": {
+        "estratificada": {
+          "f1_macro": 0.1668255539215826,
+          "acuracia": 0.9288340904174778,
+          "por_classe": {
+            "residencial": {
+              "precisao": 0.9319614711033275,
+              "recall": 0.9961624859603145,
+              "f1": 0.9629931234165762,
+              "suporte": 21368
+            },
+            "comercial": {
+              "precisao": 0.6690909090909091,
+              "recall": 0.12089356110381078,
+              "f1": 0.20478575403450194,
+              "suporte": 1522
+            },
+            "servico": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 37
+            },
+            "religioso": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 79
+            },
+            "institucional": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 53
+            },
+            "hospedagem": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 15
+            },
+            "agropecuario": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 41
+            }
+          },
+          "matriz_confusao": [
+            [
+              21286,
+              82,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              1338,
+              184,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              35,
+              2,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              78,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              48,
+              5,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              14,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              41,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        },
+        "espacial": {
+          "f1_macro": 0.14259025856944435,
+          "acuracia": 0.9251135626216742,
+          "por_classe": {
+            "residencial": {
+              "precisao": 0.9255807905686546,
+              "recall": 0.9993916136278548,
+              "f1": 0.9610711071107111,
+              "suporte": 21368
+            },
+            "comercial": {
+              "precisao": 0.6744186046511628,
+              "recall": 0.019053876478318004,
+              "f1": 0.03706070287539936,
+              "suporte": 1522
+            },
+            "servico": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 37
+            },
+            "religioso": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 79
+            },
+            "institucional": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 53
+            },
+            "hospedagem": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 15
+            },
+            "agropecuario": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 41
+            }
+          },
+          "matriz_confusao": [
+            [
+              21355,
+              13,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              1493,
+              29,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              36,
+              1,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              79,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              53,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              15,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              41,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ]
+        }
+      },
+      "gradient_boosting": {
+        "estratificada": {
+          "f1_macro": 0.1943074424472963,
+          "acuracia": 0.7521955440190352,
+          "por_classe": {
+            "residencial": {
+              "precisao": 0.9641224059092508,
+              "recall": 0.7696555597154624,
+              "f1": 0.8559829282256806,
+              "suporte": 21368
+            },
+            "comercial": {
+              "precisao": 0.1993891797556719,
+              "recall": 0.6005256241787122,
+              "f1": 0.29937766131673765,
+              "suporte": 1522
+            },
+            "servico": {
+              "precisao": 0.01282051282051282,
+              "recall": 0.05405405405405406,
+              "f1": 0.02072538860103627,
+              "suporte": 37
+            },
+            "religioso": {
+              "precisao": 0.007575757575757576,
+              "recall": 0.06329113924050633,
+              "f1": 0.013531799729364006,
+              "suporte": 79
+            },
+            "institucional": {
+              "precisao": 0.0030303030303030303,
+              "recall": 0.018867924528301886,
+              "f1": 0.005221932114882507,
+              "suporte": 53
+            },
+            "hospedagem": {
+              "precisao": 0.03571428571428571,
+              "recall": 0.13333333333333333,
+              "f1": 0.056338028169014086,
+              "suporte": 15
+            },
+            "agropecuario": {
+              "precisao": 0.06273062730627306,
+              "recall": 0.4146341463414634,
+              "f1": 0.10897435897435898,
+              "suporte": 41
+            }
+          },
+          "matriz_confusao": [
+            [
+              16446,
+              3594,
+              138,
+              621,
+              275,
+              52,
+              242
+            ],
+            [
+              508,
+              914,
+              15,
+              27,
+              46,
+              2,
+              10
+            ],
+            [
+              15,
+              20,
+              2,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              52,
+              18,
+              0,
+              5,
+              3,
+              0,
+              1
+            ],
+            [
+              21,
+              25,
+              1,
+              4,
+              1,
+              0,
+              1
+            ],
+            [
+              5,
+              5,
+              0,
+              0,
+              3,
+              2,
+              0
+            ],
+            [
+              11,
+              8,
+              0,
+              3,
+              2,
+              0,
+              17
+            ]
+          ]
+        },
+        "espacial": {
+          "f1_macro": 0.13459950481680288,
+          "acuracia": 0.5406013411204845,
+          "por_classe": {
+            "residencial": {
+              "precisao": 0.9503110674525213,
+              "recall": 0.5432890303257207,
+              "f1": 0.6913411148165793,
+              "suporte": 21368
+            },
+            "comercial": {
+              "precisao": 0.09283562822719449,
+              "recall": 0.5670170827858082,
+              "f1": 0.15954889998151228,
+              "suporte": 1522
+            },
+            "servico": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 37
+            },
+            "religioso": {
+              "precisao": 0.0033783783783783786,
+              "recall": 0.012658227848101266,
+              "f1": 0.005333333333333333,
+              "suporte": 79
+            },
+            "institucional": {
+              "precisao": 0.004392386530014641,
+              "recall": 0.05660377358490566,
+              "f1": 0.008152173913043478,
+              "suporte": 53
+            },
+            "hospedagem": {
+              "precisao": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "suporte": 15
+            },
+            "agropecuario": {
+              "precisao": 0.042283298097251586,
+              "recall": 0.4878048780487805,
+              "f1": 0.07782101167315175,
+              "suporte": 41
+            }
+          },
+          "matriz_confusao": [
+            [
+              11609,
+              8318,
+              64,
+              277,
+              612,
+              65,
+              423
+            ],
+            [
+              538,
+              863,
+              12,
+              15,
+              60,
+              8,
+              26
+            ],
+            [
+              14,
+              20,
+              0,
+              0,
+              2,
+              0,
+              1
+            ],
+            [
+              35,
+              37,
+              1,
+              1,
+              3,
+              0,
+              2
+            ],
+            [
+              9,
+              37,
+              1,
+              2,
+              3,
+              0,
+              1
+            ],
+            [
+              6,
+              8,
+              0,
+              0,
+              1,
+              0,
+              0
+            ],
+            [
+              5,
+              13,
+              0,
+              1,
+              2,
+              0,
+              20
+            ]
+          ]
+        }
+      }
+    },
+    "grade": [
+      {
+        "params": {
+          "modelo": "random_forest",
+          "n_estimators": 200,
+          "min_samples_leaf": 1
+        },
+        "f1_macro": 0.1429612935466368
+      },
+      {
+        "params": {
+          "modelo": "random_forest",
+          "n_estimators": 200,
+          "min_samples_leaf": 3
+        },
+        "f1_macro": 0.16743154743178337
+      },
+      {
+        "params": {
+          "modelo": "random_forest",
+          "n_estimators": 400,
+          "min_samples_leaf": 1
+        },
+        "f1_macro": 0.1431501713639724
+      },
+      {
+        "params": {
+          "modelo": "random_forest",
+          "n_estimators": 400,
+          "min_samples_leaf": 3
+        },
+        "f1_macro": 0.1662237858323648
+      }
+    ],
+    "melhor": {
+      "modelo": "random_forest",
+      "params": {
+        "modelo": "random_forest",
+        "n_estimators": 200,
+        "min_samples_leaf": 3
+      },
+      "f1_macro_espacial": 0.16743154743178337
+    },
+    "modelo_final": {
+      "f1_macro": 0.15527384742624478,
+      "acuracia": 0.9264114211550941,
+      "por_classe": {
+        "residencial": {
+          "precisao": 0.9287769157004621,
+          "recall": 0.997192062897791,
+          "f1": 0.9617693522906793,
+          "suporte": 21368
+        },
+        "comercial": {
+          "precisao": 0.6162790697674418,
+          "recall": 0.06964520367936924,
+          "f1": 0.12514757969303425,
+          "suporte": 1522
+        },
+        "servico": {
+          "precisao": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "suporte": 37
+        },
+        "religioso": {
+          "precisao": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "suporte": 79
+        },
+        "institucional": {
+          "precisao": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "suporte": 53
+        },
+        "hospedagem": {
+          "precisao": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "suporte": 15
+        },
+        "agropecuario": {
+          "precisao": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "suporte": 41
+        }
+      },
+      "matriz_confusao": [
+        [
+          21308,
+          59,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          1416,
+          106,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          35,
+          2,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          79,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          49,
+          4,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          14,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          41,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "brier_por_classe": {
+        "residencial": 0.06342430091828175,
+        "comercial": 0.05598679594964551,
+        "servico": 0.0015997861925467682,
+        "religioso": 0.0034066662134121083,
+        "institucional": 0.0022933402250434123,
+        "hospedagem": 0.0006494556938235336,
+        "agropecuario": 0.0016786905839978267
+      },
+      "confianca_media": 0.9176602791495383,
+      "erros_mais_confiantes": [
+        {
+          "id": 26223,
+          "oficial": "comercial",
+          "previsto": "residencial",
+          "confianca": 0.97
+        },
+        {
+          "id": 20733,
+          "oficial": "comercial",
+          "previsto": "residencial",
+          "confianca": 0.97
+        },
+        {
+          "id": 25646,
+          "oficial": "comercial",
+          "previsto": "residencial",
+          "confianca": 0.97
+        },
+        {
+          "id": 21444,
+          "oficial": "comercial",
+          "previsto": "residencial",
+          "confianca": 0.969
+        },
+        {
+          "id": 24425,
+          "oficial": "comercial",
+          "previsto": "residencial",
+          "confianca": 0.968
+        },
+        {
+          "id": 40714,
+          "oficial": "comercial",
+          "previsto": "residencial",
+          "confianca": 0.968
+        },
+        {
+          "id": 14184,
+          "oficial": "comercial",
+          "previsto": "residencial",
+          "confianca": 0.968
+        },
+        {
+          "id": 21568,
+          "oficial": "servico",
+          "previsto": "residencial",
+          "confianca": 0.968
+        },
+        {
+          "id": 43804,
+          "oficial": "comercial",
+          "previsto": "residencial",
+          "confianca": 0.968
+        },
+        {
+          "id": 28684,
+          "oficial": "religioso",
+          "previsto": "residencial",
+          "confianca": 0.967
+        },
+        {
+          "id": 41775,
+          "oficial": "comercial",
+          "previsto": "residencial",
+          "confianca": 0.967
+        },
+        {
+          "id": 44115,
+          "oficial": "comercial",
+          "previsto": "residencial",
+          "confianca": 0.967
+        },
+        {
+          "id": 26217,
+          "oficial": "comercial",
+          "previsto": "residencial",
+          "confianca": 0.967
+        },
+        {
+          "id": 25424,
+          "oficial": "comercial",
+          "previsto": "residencial",
+          "confianca": 0.967
+        },
+        {
+          "id": 14174,
+          "oficial": "comercial",
+          "previsto": "residencial",
+          "confianca": 0.967
+        },
+        {
+          "id": 39778,
+          "oficial": "comercial",
+          "previsto": "residencial",
+          "confianca": 0.967
+        },
+        {
+          "id": 19293,
+          "oficial": "comercial",
+          "previsto": "residencial",
+          "confianca": 0.966
+        },
+        {
+          "id": 23088,
+          "oficial": "comercial",
+          "previsto": "residencial",
+          "confianca": 0.966
+        },
+        {
+          "id": 44264,
+          "oficial": "comercial",
+          "previsto": "residencial",
+          "confianca": 0.966
+        },
+        {
+          "id": 10583,
+          "oficial": "agropecuario",
+          "previsto": "residencial",
+          "confianca": 0.966
+        }
+      ]
+    }
+  }
+}

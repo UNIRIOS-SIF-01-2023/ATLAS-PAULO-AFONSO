@@ -19,11 +19,7 @@ interface Props {
   soDoSelecionado: boolean;
   onSoDoSelecionado: (value: boolean) => void;
   hasSelection: boolean;
-  showRooftop: boolean;
-  onShowRooftop: (value: boolean) => void;
-  rooftopMeta: MapMeta | null;
-  rooftopOptions: RooftopOptions;
-  onRooftopOptions: (value: RooftopOptions) => void;
+  onSobreModelo: () => void;
 }
 
 export function LayersPanel(props: Props) {
@@ -89,18 +85,11 @@ export function LayersPanel(props: Props) {
         )}
       </div>
 
-      <div className="section-head">
-        <h2 className="section-label">CNEFE rooftop (local)</h2>
+      <h2 className="section-label">Inteligência artificial</h2>
+      <div className="option-card">
+        <p className="muted small">Prédios sem uso oficial recebem uma estimativa do classificador ao abrir o cartão.</p>
+        <button type="button" className="link-button" onClick={props.onSobreModelo}>Sobre o modelo</button>
       </div>
-      <RooftopControls
-        value={props.rooftopOptions}
-        onChange={props.onRooftopOptions}
-        meta={props.rooftopMeta}
-        theme={theme}
-        showEnableToggle
-        enabled={props.showRooftop}
-        onEnabledChange={props.onShowRooftop}
-      />
 
       <p className="hint">
         <Icon name="info" size={14} />

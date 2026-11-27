@@ -8,16 +8,16 @@ Visualizador de **edificações reais** sobre um mapa interativo, aplicado a Pau
 
 Projeto da turma de Sistemas de Informação, Paulo Afonso – BA.
 
-| Função | Nome |
-| --- | --- |
-| Líder da equipe | Caio Lúcio |
-| Membro | Arthur Henrique |
-| Membro | Elliton Luís |
-| Membro | Rafael Santos |
-| Membro | Luís Gustavo |
-| Membro | João Almeida |
+| Função | Nome | GitHub |
+| --- | --- | --- |
+| Líder da equipe | Caio Lúcio | [@CaioLuc](https://github.com/CaioLuc) |
+| Membro | Arthur Henrique | [@ArthurThuko](https://github.com/ArthurThuko) |
+| Membro | Elliton Luís Correia da Silva Júnior | [@Elliton-Luis](https://github.com/Elliton-Luis) |
+| Membro | Rafael Santos | [@RafaSSii](https://github.com/RafaSSii) |
+| Membro | Luís Gustavo | [@GTHLIMA](https://github.com/GTHLIMA) |
+| Membro | João Vítor Almeida | [@dunkexpial](https://github.com/dunkexpial) |
 
-Repositório: <https://github.com/NOXXD-COMPANY/ATLAS-PAULO-AFONSO>
+Repositório oficial: <https://github.com/UNIRIOS-SIF-01-2023/ATLAS-PAULO-AFONSO>
 
 ## Sumário
 
@@ -28,13 +28,14 @@ Repositório: <https://github.com/NOXXD-COMPANY/ATLAS-PAULO-AFONSO>
 5. [Arquitetura](#arquitetura)
 6. [API](#api)
 7. [Modelo de dados](#modelo-de-dados)
-8. [Testes](#testes)
-9. [Requisitos e estado de implementação](#requisitos-e-estado-de-implementação)
-10. [Casos de uso](#casos-de-uso)
-11. [Decisões de engenharia](#decisões-de-engenharia)
-12. [Limitações conhecidas](#limitações-conhecidas)
-13. [Roadmap](#roadmap)
-14. [Estrutura do repositório](#estrutura-do-repositório)
+8. [Classificador de uso (IA)](#classificador-de-uso-ia)
+9. [Testes](#testes)
+10. [Requisitos e estado de implementação](#requisitos-e-estado-de-implementação)
+11. [Casos de uso](#casos-de-uso)
+12. [Decisões de engenharia](#decisões-de-engenharia)
+13. [Limitações conhecidas](#limitações-conhecidas)
+14. [Roadmap](#roadmap)
+15. [Estrutura do repositório](#estrutura-do-repositório)
 
 ---
 
@@ -98,36 +99,106 @@ A carga grava cada ponto do QG (61.965) em `ENDERECOS` e cada polígono em `EDIF
 
 Cada endereço do QG vira uma linha de `ENDERECOS` (a combinação `COD_UNICO` + `COD_ESPECIE` é única) e cada polígono, uma linha de `EDIFICACOES`; os polígonos do OSM entram com `ID_ORIGEM` `osm-<id>` em `EDIFICACAO_ORIGEM`.
 
-### Dados brutos (não versionados)
+### Dados brutos
 
-A pasta `data/raw/` está no `.gitignore`, então **quem clona o repositório precisa obter os arquivos**:
-
-| Arquivo | Caminho | Como obter |
-| --- | --- | --- |
-| Overture (janela e município) | `data/raw/overture/` | A documentar (origem e parâmetros do download) |
-| CNEFE/QG | `data/raw/qg/qg_810_endereco_Munic2924009.json` | A documentar (download do IBGE) |
-| Contorno do município | `data/raw/municipio_boundary.geojson` | A documentar (origem) |
-| OSM (opcional) | `data/raw/osm/osm_buildings_paulo_afonso.geojson` | `scripts/fetch_osm_buildings.py` |
+Os arquivos que a carga lê **estão no repositório** em `data/raw/` (cerca de 92 MB, cada um abaixo de 50 MB): o Overture municipal (e uma cópia dele, `edificacoes_overture.geojson`), a janela do centro e o CNEFE do município. A origem, a licença, o tamanho e como baixar cada um de novo estão em [`datasets/README.md`](datasets/README.md).
 
 Os caminhos lidos pela carga ficam em `importacao/config.py` (`OVERTURE_FILES`, `OSM_BUILDINGS`, `MUNICIPIO_BOUNDARY` e `QG_ENDERECOS`). Se algum arquivo tiver outro nome ou estiver em outra pasta, ajuste lá. Os caminhos são relativos: rode a carga sempre a partir da raiz do repositório.
 
 ## Como rodar
 
-Pré-requisitos: **Python 3.10 ou superior** (a API usa a sintaxe `str | None`), Node.js, e o `mariadb`/`mariadbd` do sistema já instalados (não precisa rodar o MariaDB como serviço, pois o script sobe uma instância local). Os arquivos de dados brutos devem estar em `data/raw/` (ver acima).
+**Pré-requisitos**
+
+- **Python 3.10 a 3.14.** O 3.15 ainda não serve: o `pyclipper` (dependência do `mapbox-vector-tile`) não tem pacote pronto para ele, o pip tenta compilar, pede o Microsoft C++ Build Tools e aborta a instalação inteira. No Windows, use o lançador `py -3.14` (ou `py -3.13` etc.); confira as versões instaladas com `py -0p`.
+- **Node.js** (para o frontend).
+- **Git** (no Windows, o Git for Windows traz o `bash.exe`, usado pelo `scripts/db.sh`).
+- **MariaDB** instalado. Não precisa rodar como serviço: o `scripts/db.sh` sobe uma instância local na porta 3320. No Windows, o script espera o MariaDB em `C:\Program Files\MariaDB 13.0\`.
+- Os dados brutos já vêm no repositório em `data/raw/` (ver acima).
+
+### Windows (cmd), passo a passo
+
+Rode um comando por vez, na pasta do projeto (troque o caminho pelo da sua máquina):
+
+```cmd
+cd /d C:\caminho\para\o\repositorio
+```
+
+1. Ambiente Python com o 3.14 (uma vez):
+
+   ```cmd
+   py -3.14 -m venv .venv
+   .venv\Scripts\python.exe --version
+   .venv\Scripts\python.exe -m pip install -r requirements.txt
+   ```
+
+   O segundo comando deve mostrar `Python 3.14.x`. Se o pip falhar no `pyclipper`, o venv foi criado com o Python errado: apague com `rmdir /s /q .venv` e repita.
+
+2. Frontend (uma vez):
+
+   ```cmd
+   cd frontend && npm install && cd ..
+   ```
+
+3. Configuração (uma vez). Copie o modelo e gere três valores aleatórios (rode a segunda linha três vezes):
+
+   ```cmd
+   copy .env.example .env
+   .venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(32))"
+   notepad .env
+   ```
+
+   No `.env`, cole um valor em `DB_PASSWORD=`, outro em `MARIADB_ROOT_PASSWORD=` e outro em `JWT_SECRET=`. Salve.
+
+4. Subir o banco (sempre que ligar o computador). Se outra cópia do projeto estiver com o MariaDB na porta 3320, pare-a antes, na pasta dela, com `db.sh stop`:
+
+   ```cmd
+   "C:\Program Files\Git\bin\bash.exe" scripts/db.sh start
+   ```
+
+   Termina com `MariaDB pronto na porta 3320.`
+
+5. Importar os dados (uma vez, ou quando os dados mudarem; leva alguns minutos):
+
+   ```cmd
+   .venv\Scripts\python.exe importacao\import_data.py --promover
+   ```
+
+   Termina com `Carga concluída: {... 'EDIFICACOES': 55255, ... 'EDIFICACOES_DESCONHECIDO': 32071}` e `Done.` O aviso `contorno do município ausente, Overture sem recorte` é esperado: o contorno é opcional e o arquivo do Overture já vem recortado no município.
+
+6. API (janela própria; carrega o modelo de IA ao subir):
+
+   ```cmd
+   start "API" cmd /k .venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+   ```
+
+7. Frontend (janela própria):
+
+   ```cmd
+   start "Web" cmd /k "cd frontend && npm run dev -- --port 5173 --host 127.0.0.1"
+   ```
+
+8. Abra **http://127.0.0.1:5173/**, crie uma conta na aba "Cadastrar" e clique num prédio cinza ("Não identificado") para ver o uso estimado por IA. Exemplo direto: http://127.0.0.1:5173/?predio=172 mostra "Comercial · Previsto por IA · 63%".
+
+Testes (opcional): `.venv\Scripts\python.exe -m pytest tests -q` e `cd frontend && npm test`.
+
+Para parar: feche as janelas "API" e "Web" e rode `"C:\Program Files\Git\bin\bash.exe" scripts/db.sh stop`.
+
+### Linux e macOS (bash)
 
 ```bash
-# 1) Ambiente Python (uma vez)
+# 1) Ambiente Python (uma vez; use um Python de 3.10 a 3.14)
 python3 -m venv .venv
-./.venv/bin/pip install -r backend/requirements.txt
+./.venv/bin/pip install -r requirements.txt
 
 # 2) Instalar o app (uma vez)
 cd frontend && npm install && cd ..
 
-# 3) Tudo de uma vez (usa dados existentes; importe só quando necessário)
+# 3) Configuração (uma vez): copie e preencha MARIADB_ROOT_PASSWORD, DB_PASSWORD e JWT_SECRET
+cp .env.example .env
+
+# 4) Tudo de uma vez (banco, importação, API e frontend)
 bash scripts/run.sh
 ```
-
-Para atualizar os dados já importados, rode `bash scripts/run.sh --reimport`.
 
 Ou passo a passo:
 
@@ -135,14 +206,14 @@ Ou passo a passo:
 # (opcional, demora vários minutos) baixa a 2ª fonte de polígonos do OSM
 ./.venv/bin/python scripts/fetch_osm_buildings.py
 
-bash scripts/db.sh start            # sobe o MariaDB local (:3307, db atlas_urbano)
-doppler run -- ./.venv/bin/python import_data.py             # importa para o banco de rascunho
-doppler run -- ./.venv/bin/python import_data.py --promover  # idem e, em seguida, copia para produção
+bash scripts/db.sh start            # sobe o MariaDB local (:3320) e aplica scripts/schema.sql
+./.venv/bin/python importacao/import_data.py             # importa para o banco de rascunho
+./.venv/bin/python importacao/import_data.py --promover  # idem e, em seguida, copia para produção
 ./.venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000 &
 cd frontend && npm run dev -- --port 5173 &
 ```
 
-A carga grava primeiro no banco de rascunho (`DB_NAME_STAGE`). Só com `--promover` os dados são copiados para produção (`DB_NAME`), numa única transação: se algo falhar, a produção fica como estava. Sem as variáveis `DB_NAME` e `DB_NAME_STAGE` definidas e diferentes entre si, a carga aborta; por isso o comando usa `doppler run --`.
+A carga grava primeiro no banco de rascunho (`DB_NAME_STAGE`). Só com `--promover` os dados são copiados para produção (`DB_NAME`), numa única transação: se algo falhar, a produção fica como estava. Sem as variáveis `DB_NAME` e `DB_NAME_STAGE` definidas e diferentes entre si, a carga aborta. Backend, carga e testes leem essas variáveis do `.env` da raiz (modelo em `.env.example`); variáveis já definidas no ambiente têm prioridade.
 
 Abra **http://127.0.0.1:5173/**. Para parar o banco: `bash scripts/db.sh stop`.
 
@@ -150,11 +221,11 @@ Abra **http://127.0.0.1:5173/**. Para parar o banco: `bash scripts/db.sh stop`.
 
 | Serviço | Endereço |
 | --- | --- |
-| MariaDB local | `127.0.0.1:3307` (banco `atlas_urbano`) |
+| MariaDB local | `127.0.0.1:3320` (bancos `ATLAS` e `ATLAS_STAGE`, usuário `atlas`) |
 | Backend FastAPI | `http://127.0.0.1:8000` (docs interativas em `/docs`) |
 | Frontend Vite | `http://127.0.0.1:5173` |
 
-**Logs:** `/tmp/atlas-uvicorn.log` (backend), `/tmp/atlas-vite.log` (frontend) e `.mysql-data/mysql.err` (banco).
+**Logs:** `/tmp/atlas-uvicorn.log` (backend), `/tmp/atlas-vite.log` (frontend) e `mariadb-data/mysql.err` (banco).
 
 **Configuração**
 
@@ -280,6 +351,8 @@ Visual em "vidro líquido", à maneira do Liquid Glass da Apple: painéis transl
 | `GET /api/map/meta` | Versão dos dados (entra nas URLs do mapa) e a área com prédios | 200 |
 | `GET /api/map/overview?level=` | Grade de densidade da visão afastada (GeoJSON); `level=0` ~175 m, `level=1` ~88 m | 200, 422 |
 | `GET /api/tiles/{z}/{x}/{y}.pbf?v=` | Tiles vetoriais (MVT) do mapa: pontos dos prédios pequenos nos zooms 12 a 14 (camada `dots`) e polígonos (camada `buildings`): os grandes desde o 12, todos a partir do 14 | 200, 404 |
+| `POST /api/predict-uso` | Corpo `{"id": "<ID numérico>"}`. Uso estimado pelo classificador: `tipo_oficial`, `tipo_previsto`, `confianca`, `probabilidades` por classe e `versao_modelo`. Prédio com uso oficial volta com `tipo_previsto: null` | 200, 401, 404, 422, 503 |
+| `GET /api/predict-uso/modelo` | Métricas, dados e versão do modelo (`ai-model/models/modelo_uso.json`), usados na janela "Sobre o modelo" | 200, 401, 503 |
 
 Toda rota `/api` (exceto `/`, `/api/auth/cadastro` e `/api/auth/login`) exige `Authorization: Bearer <token>` e devolve 401 sem token válido. O front abre numa tela de login sem saída e revalida a sessão em `/api/auth/eu` a cada abertura.
 
@@ -460,9 +533,63 @@ Também há um índice `FULLTEXT` em `LOGRADOURO_NUM` e `ESTABELECIMENTO`.
 - **Tipo de uso**: em `ENDERECOS` vem de `COD_ESPECIE`; em `EDIFICACOES` vem da carga (o tipo mais frequente entre os endereços do prédio e, sem endereços, o do Overture/OSM).
 - **Índices espaciais** em `EDIFICACOES.GEOM`, `EDIFICACOES.PONTO_ROTULO` e `ENDERECOS.PT`.
 
+## Classificador de uso (IA)
+
+**Eixo: Machine Learning (classificação supervisionada).** O uso de IA generativa no desenvolvimento está declarado em [`docs/declaracao-uso-ia.md`](docs/declaracao-uso-ia.md).
+
+Cerca de 58% dos prédios (32.071 de 55.255) não têm endereço no CNEFE e ficam com uso `desconhecido`. Um classificador treinado nos prédios rotulados estima o uso desses prédios, com uma confiança para cada previsão.
+
+- **Problema e público**: quem consulta o mapa (gestor público, pesquisador, equipe de campo) não sabe o uso de mais da metade dos prédios. Conferir todos em campo é caro; a estimativa ajuda a priorizar a conferência e a ler tendências por região.
+- **Objetivo do recurso**: estimar, com uma confiança, o uso (residencial, comercial, serviço etc.) de cada prédio sem endereço no CNEFE e mostrar essa estimativa no cartão do prédio, sempre separada do uso oficial, para orientar a conferência de campo e a leitura do mapa.
+- **Onde aparece no sistema**: ao clicar num prédio sem uso oficial, o cartão mostra o bloco **"Uso estimado por IA"** com a classe prevista e a confiança (ex.: "Residencial · Previsto por IA · 93%"), sempre ao lado de "Uso oficial: não identificado". O link **"Sobre o modelo"** (no cartão e no painel lateral, seção "Inteligência artificial") abre uma janela com o que o modelo faz, os dados, as métricas por classe e os limites.
+- **Erros tratados**: sem modelo no servidor, a API responde 503 e o cartão mostra "Modelo de uso indisponível no servidor"; ID inválido dá 422, prédio inexistente 404, sem login 401; sem conexão, o cartão avisa "Sem conexão com o servidor para estimar o uso".
+- **Tecnologias**: scikit-learn 1.9.1 (Random Forest, Gradient Boosting, regressão logística, calibração), shapely 2 e NumPy (features geométricas e de vizinhança), joblib (modelo salvo), FastAPI (rota), React (cartão e "Sobre o modelo").
+
+**Integração** (o navegador nunca acessa o modelo; ele roda no backend):
+
+```
+[Frontend React] --POST /api/predict-uso {id}--> [FastAPI main.py] --> [backend/ia/modelo.py]
+   cartão do prédio <--{tipo_previsto, confianca,--   valida (422/404/503)    features da base inteira
+   "Sobre o modelo" <-- probabilidades}                                       + predict_proba (cache por versão)
+                                                                                     ^
+[MariaDB: EDIFICACOES] --ai-model/scripts/treinar_uso.py--> ai-model/models/modelo_uso.joblib --+ carregado ao subir a API
+```
+
+As features dependem da vizinhança de cada prédio, então a API não calcula um prédio isolado por pedido: ao subir, carrega o `modelo_uso.joblib`, monta as features da base inteira (como no treino) e guarda a previsão de cada prédio desconhecido; cada pedido só consulta esse resultado. Se os dados forem reimportados, a previsão é refeita na próxima consulta. Se o modelo foi treinado com outra lista de features, a API não o carrega (e responde 503) em vez de prever errado.
+
+- **Features** (`backend/ia/features.py`): só o que todo prédio tem, ou seja, a forma do polígono, a fonte do footprint e a vizinhança num raio de até 150 m. Bairro, endereço e pavimentos ficam de fora, porque só os prédios rotulados têm esses dados.
+- **Modelos comparados** (`backend/ia/treino.py`): classe mais frequente e regressão logística (as duas linhas de base), Random Forest e Gradient Boosting. Validação cruzada em 5 folds, estratificada e espacial (células de 500 m), com os rótulos do teste escondidos das features de vizinhança. O modelo final é calibrado (sigmoid).
+- **Métricas** (relatório completo em [`docs/ia/avaliacao_modelo.md`](docs/ia/avaliacao_modelo.md)): na CV espacial, o melhor Random Forest chega a F1 macro de 0,167, contra 0,137 da classe mais frequente. O modelo acerta residencial (F1 0,96), mas quase não reconhece comercial (recall 0,07) e nunca prevê as classes raras.
+- **Artefatos** (pasta [`ai-model/`](ai-model/README.md)): `ai-model/models/modelo_uso.joblib` (30 MB, scikit-learn 1.9.1), `ai-model/models/modelo_uso.json` (métricas e versão) e o notebook [`ai-model/notebooks/eda_e_avaliacao.ipynb`](ai-model/notebooks/eda_e_avaliacao.ipynb) (EDA da base e leitura das métricas, já executado).
+
+- **Na base inteira** (32.071 prédios sem uso oficial), o modelo prevê 31.211 residenciais, 749 comerciais, 109 agropecuários e 2 de serviço; a confiança média é 0,89, e 829 previsões ficam abaixo de 0,6.
+
+**Limitações do recurso de IA**
+
+- **Desempenho desigual entre classes**: o F1 macro (0,167 na CV espacial) supera o baseline (0,137) por pouco. Residencial é bem reconhecido, comercial tem precisão de 0,62 mas recall de 0,07, e as classes raras (15 a 79 exemplos cada) não foram acertadas na avaliação.
+- **Viés de seleção**: o modelo aprende com prédios que têm endereço no CNEFE, mas prevê os que não têm. Esses são menores (mediana de 58 m² contra 106 m² dos residenciais rotulados) e podem ser anexos, garagens ou galpões, usos sem classe própria no CNEFE. A CV espacial mede esse efeito só em parte.
+- **Uso adequado**: é uma estimativa, nunca dado oficial. Serve para priorizar conferência de campo e ler tendências; não serve para afirmar o uso de um prédio específico nem para contar as classes raras.
+- **Dependência dos dados**: as features usam a vizinhança, então a previsão muda se a base for reimportada com outros prédios; o modelo precisa ser retreinado quando os dados mudarem de forma relevante.
+
+**Aplicação publicada**: não há; o sistema com o recurso de IA roda localmente, seguindo [Como rodar](#como-rodar).
+
+**Como rodar com a IA**: siga [Como rodar](#como-rodar). O modelo já vem versionado em `ai-model/models/modelo_uso.joblib` e a API o carrega sozinha ao subir (o log avisa se ele faltar; aí as rotas de IA respondem 503 e o resto do sistema segue normal). Com o banco carregado, abra um prédio cinza ("Não identificado") no mapa para ver a estimativa.
+
+Para treinar de novo (MariaDB no ar e `.env` configurado; leva cerca de 3 minutos; grava o modelo, o `modelo_uso.json` e o relatório `docs/ia/avaliacao_modelo.md`):
+
+```bash
+./.venv/bin/python ai-model/scripts/treinar_uso.py
+```
+
+**Capturas** (em `docs/imagens/`):
+
+| Prédio sem endereço com uso estimado | Sobre o modelo | Erro tratado (sem modelo no servidor) |
+| --- | --- | --- |
+| ![Cartão com uso estimado por IA](docs/imagens/ia-cartao-previsao.jpg) | ![Janela Sobre o modelo](docs/imagens/ia-sobre-o-modelo.jpg) | ![Cartão com erro 503](docs/imagens/ia-erro-sem-modelo.jpg) |
+
 ## Testes
 
-Suíte em `backend/tests/test_api.py`, em níveis:
+Suítes em [`tests/`](tests/README.md) (backend e carga, com o registro dos testes manuais) e `frontend/tests/`. As de `tests/backend/` estão em níveis:
 
 | Nível | O que cobre |
 | --- | --- |
@@ -471,15 +598,16 @@ Suíte em `backend/tests/test_api.py`, em níveis:
 | Regra de domínio | `best_type` do ETL (o QG prevalece sobre o Overture) |
 | Endpoints | Com o banco simulado (`monkeypatch`): os filtros chegam à camada de dados, `bbox` inválido devolve 422 e id inexistente devolve 404 |
 | Integração | Contra o MariaDB real; **pulados automaticamente** se o banco estiver fora do ar |
+| IA | `test_ia_api.py` (rotas com modelo falso: 200, 401, 404, 422, 503), `test_ia_features.py` e `test_ia_treino.py` (sem vazamento de rótulo, baselines, reprodutibilidade) |
 | Carga (ETL) | Em `tests/importacao/`: classificação, junção espacial, leitura e recorte, montagem dos registros, gravação do rascunho e promoção. Usam arquivos temporários e um banco simulado, sem MySQL |
 
 ```bash
-./.venv/bin/pip install pytest httpx      # dependências de desenvolvimento
-./.venv/bin/python -m pytest backend/tests -q   # rodar da raiz do projeto
-./.venv/bin/python -m pytest tests/importacao -q # testes da carga, também da raiz
+./.venv/bin/pip install -r requirements.txt     # inclui pytest e httpx
+./.venv/bin/python -m pytest tests -q            # tudo (backend + carga), da raiz do projeto
+./.venv/bin/python -m pytest tests/importacao -q # só a carga
 ```
 
-Os testes de integração de cobertura assumem os números da carga atual (87.951 registros) e precisam ser atualizados quando os dados mudarem.
+Os testes de integração rodam contra o MariaDB local com a carga atual (55.255 edificações) e são pulados se o banco estiver fora do ar.
 
 No frontend, `frontend/tests/` cobre com o `node:test` a lógica sem navegador: níveis de detalhe, URLs versionadas, expressões e contagens do mapa (`mapTiles`), altura dos prédios (`constants`) e formatação de texto e área (`format`).
 
@@ -511,7 +639,7 @@ A coluna **Estado** é uma avaliação do código atual (MVP) contra a documenta
 | ID | Requisito | Categoria | Estado | Observação |
 | --- | --- | --- | --- | --- |
 | RNF01 | Custo total R$ 0,00 | Econômico | Atendido | Apenas dados e ferramentas abertos; mapa base do OpenFreeMap, gratuito e sem chave de API |
-| RNF02 | Reprodutibilidade a partir do pacote e das receitas | Manutenibilidade | Parcial | Há scripts, `requirements.txt` e testes, mas os dados brutos são manuais, a origem de parte deles não está documentada e a carga aponta para um banco diferente do script de subida |
+| RNF02 | Reprodutibilidade a partir do pacote e das receitas | Manutenibilidade | Parcial | Há scripts, `requirements.txt`, testes e os dados brutos versionados em `data/raw/`, com origem, licença e tamanho em `datasets/README.md`; falta confirmar a ferramenta ou página usada em alguns downloads |
 | RNF03 | Cobertura de 100% do perímetro urbano processado | Completude | Parcial | Overture municipal (52.809 prédios) + fallback OSM (400); faltam os ~3,8 mil endereços ainda sem polígono |
 | RNF04 | Taxa de associação endereço–edificação ≥ 85% (piloto: 93%) | Qualidade de dados | Atendido | 93,9% dos endereços caem em polígono (58.178 de 61.965) |
 | RNF05 | Nenhum dado pessoal armazenado ou publicado | Privacidade | A verificar | Guarda-se endereço e estabelecimento; conferir se `estabelecimento` não expõe dados pessoais |
@@ -578,14 +706,14 @@ Atores: **Cliente** (consulta mapa e relatórios) e **Equipe Mantenedora** (carg
 - **Credenciais**: a carga não guarda mais usuário nem senha em `import_data.py`; usa `backend/config.py` e `backend/db.py`. Uma senha que tenha sido versionada antes continua no histórico do Git e deve ser trocada.
 - **Níveis de detalhe do mapa**: de perto, polígonos (zoom 14+); entre os zooms 12 e 14, os prédios pequenos viram pontos do tamanho real e os grandes continuam polígonos; mais longe, grades de densidade de ~88 m e ~175 m. O servidor pré-gera os tiles dos zooms 12 a 14 em segundo plano.
 - **Sobreposição OSM × Overture por interseção simples**: a carga descarta todo polígono do OSM que intersecta algum do Overture (o Overture já inclui prédios derivados do OSM). Um prédio do OSM que apenas encosta num do Overture também é descartado.
-- **"Edificação" é ambígua**: a tabela tem uma linha por endereço, então 87.951 registros não são 87.951 prédios. O relatório rotula a contagem como "Edificações".
+- **Edificação ≠ endereço**: cada linha de `EDIFICACOES` é um polígono (55.255 na carga atual); os 61.965 endereços do CNEFE ficam em `ENDERECOS`, ligados aos prédios por `ENDERECO_EDIFICACAO`, e um prédio pode ter vários endereços. O relatório conta polígonos e os rotula como "Edificações".
 - **Prédios sem endereço nem tipo** (~26 mil): o Overture municipal trouxe a forma, mas sem uso conhecido (ficam `desconhecido` até conferência de campo ou 2ª fonte com atributo).
 - **`em_cobertura` hoje não filtra nada**: a janela de cobertura (`JANELA_COBERTURA`, fixa no código) passou a cobrir o município inteiro.
 - **Contrato Pydantic não ligado**: `schemas.py` é usado nos testes, mas as rotas não declaram `response_model`; a documentação em `/docs` não mostra o formato das respostas.
 - **`MBRIntersects` é aproximado**: compara retângulos envolventes, então o filtro `bbox` pode trazer prédios que só encostam na área.
 - **Estatísticas de área** incluem os círculos artificiais de ~5 m das bolinhas; o RF08 pede mediana, e hoje há só média.
 - **Coleta do OSM**: o cache do `bbox` é lido, mas nunca gravado; só `ways` são consultados (relações com `building` são ignoradas); e quadrantes que falham na repescagem são descartados sem aviso final.
-- **Origem de alguns dados não documentada**: Overture, CNEFE e o contorno do município são arquivos manuais (ver [Dados brutos](#dados-brutos-não-versionados)).
+- **Origem exata de alguns downloads a confirmar**: os dados estão versionados em `data/raw/` e descritos em `datasets/README.md`, mas a ferramenta usada no download do Overture, a página do IBGE do CNEFE e a origem do contorno do município ainda estão marcadas como "a confirmar" (ver [Dados brutos](#dados-brutos)).
 - **Acoplamento por *magic string***: o frontend identifica "endereço sem prédio" pelo valor `fonte = 'QG/CNEFE'`. Um campo explícito (ex.: `tem_poligono`) seria mais robusto.
 - **Carga não incremental**: o rascunho é reescrito do zero e a promoção apaga e recopia todas as tabelas de produção (numa transação, então uma falha deixa a produção intacta). O `TRUNCATE` do rascunho confirma implicitamente no MySQL, então a carga do rascunho em si não é atômica.
 - **Heurística espacial simples**: se mais de um polígono contém o ponto, vale o primeiro devolvido pelo índice espacial, sem critério explícito; fora dos polígonos, vale o mais próximo dentro da tolerância de ~15 m.
@@ -607,50 +735,57 @@ Em ordem sugerida de prioridade:
 
 ## Estrutura do repositório
 
+Segue a estrutura pedida no enunciado do PI (seção 9):
+
 ```
-backend/            API FastAPI (o frontend nunca acessa o MySQL diretamente)
-  config.py         conexão/credenciais do banco
-  db.py             filtros (bbox, bairro, tipo, fonte), consultas (tiles, busca, endereços), agregados → GeoJSON
-  main.py           rotas: /, /api/buildings, /api/buildings/{id}, /api/stats, /api/search,
-                    /api/map/meta, /api/map/overview, /api/tiles; geração e pré-aquecimento dos tiles
-  overview.py       grades de densidade da visão afastada
-  tile_cache.py     cache em memória dos tiles comprimidos
-  schemas.py        contratos Pydantic (feature leve/completa, estatísticas)
-  tests/
-    test_api.py     testes unitários, de contrato, de endpoint e de integração
-  requirements.txt  dependências Python do backend
 frontend/           React + Vite + TS + MapLibre GL
   src/App.tsx       mapa, seleção, legenda, URL compartilhável, atalhos e avisos
   src/mapLayers.ts  mapa base, fontes e camadas do MapLibre, filtros
   src/mapTiles.ts   níveis de detalhe, URLs versionadas, expressões e contagens
-  src/components/   SearchBox, LayersPanel, BuildingCard, MapControls, Icon
+  src/components/   SearchBox, LayersPanel, BuildingCard (com o uso estimado por IA), SobreModelo, MapControls, Icon
   src/Report.tsx    relatório (totais, filtros, exportar PDF)
   src/constants.ts  ordem, rótulos e cores dos tipos de uso; altura dos prédios
   src/format.ts     caixa de título, números e áreas em pt-BR
+  src/session.ts    sessão JWT e revalidação no servidor
   src/index.css     estilos Liquid Glass, folha inferior no celular e regras de impressão
   src/main.tsx      ponto de entrada React (configura o worker do MapLibre)
-  tests/            testes node:test de mapTiles, constants e format
-scripts/
-  db.sh             sobe/para o MariaDB local
-  run.sh            sobe tudo (banco, importação, backend, frontend)
-  mysql-local.cnf   tmpdir do MariaDB (sem /var/tmp no ambiente)
-  fetch_osm_buildings.py   baixa polígonos do OSM (API Overpass) para data/raw/osm/
-import_data.py      ponto de entrada da carga (chama importacao.cli)
+  tests/            testes node:test (mapTiles, constants, format, session)
+backend/            API FastAPI (o frontend nunca acessa o banco nem o modelo diretamente)
+  config.py         conexão/credenciais do banco (lidas do .env)
+  db.py             filtros (bbox, bairro, tipo, fonte), consultas (tiles, busca, endereços), agregados → GeoJSON
+  main.py           rotas: /, /api/buildings, /api/stats, /api/search, /api/map/*, /api/tiles, /api/auth/*,
+                    /api/predict-uso e /api/predict-uso/modelo
+  overview.py       grades de densidade da visão afastada
+  tile_cache.py     cache em memória dos tiles comprimidos
+  schemas.py        contratos Pydantic (feature leve/completa, estatísticas, auth, predict-uso)
+  ia/               módulo de IA usado no treino e na API (features, dados, treino, modelo)
+  requirements.txt  dependências Python (a raiz inclui este arquivo)
+ai-model/           recurso de IA (ver ai-model/README.md)
+  notebooks/        EDA e avaliação (eda_e_avaliacao.ipynb, já executado)
+  models/           modelo treinado (modelo_uso.joblib) e métricas (modelo_uso.json)
+  scripts/          treinar_uso.py: treino e avaliação reprodutíveis (semente 42)
+datasets/           README.md com origem, licença, tamanho e como obter cada base
+docs/
+  imagens/          capturas do recurso de IA funcionando
+  ia/               avaliacao_modelo.md (relatório de métricas gerado pelo treino)
+  diario_bordo/     diário dos commits
+tests/              testes automatizados e evidências (ver tests/README.md)
+  backend/          API, rotas de IA, features e treino
+  importacao/       carga (ETL), com banco simulado
 importacao/         carga: Overture + OSM + QG → relação espacial → banco de rascunho → produção
+  import_data.py    ponto de entrada da carga (chama importacao.cli)
   config.py         caminhos dos dados, tolerância espacial, lista de tabelas
-  fontes.py         leitura dos GeoJSON e recorte no município
-  espacial.py       polygon_of e match_points (junção espacial)
-  predios.py        monta a lista de prédios e associa os endereços
-  classificacao.py  tipo de uso (CNEFE, subtype e class do Overture)
-  registros.py      converte o resultado em linhas para INSERT (sem banco)
-  banco.py          transação com commit/rollback
-  stage.py          carga do banco de rascunho
-  producao.py       promoção do rascunho para produção
-  cli.py            argumentos (--promover) e orquestração
-tests/importacao/   testes da carga
-data/raw/           arquivos de dados (não versionados)
-  overture/         edificações do Overture (janela e município)
-  qg/               endereços do CNEFE
-  osm/              polígonos do OSM (saída do script de coleta)
-  municipio_boundary.geojson   contorno do município
+  fontes.py, espacial.py, predios.py, classificacao.py, registros.py, banco.py, stage.py, producao.py, cli.py
+scripts/
+  db.sh             sobe/para o MariaDB local (porta 3320)
+  run.sh            sobe tudo (banco, importação, backend, frontend)
+  schema.sql        esquema do banco
+  mysql-local.cnf   tmpdir do MariaDB
+  fetch_osm_buildings.py   baixa polígonos do OSM (API Overpass) para data/raw/osm/
+data/raw/           dados brutos que a carga lê (Overture e CNEFE; ver datasets/README.md)
+README.md
+requirements.txt    dependências Python (API, carga, IA e testes)
+.env.example        variáveis de ambiente sem valores reais
+.gitignore
+LICENSE             MIT
 ```

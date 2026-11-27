@@ -41,3 +41,24 @@ export function authHeaders(): Record<string, string> {
   const sessao = lerSessao();
   return sessao ? { Authorization: `Bearer ${sessao.token}` } : {};
 }
+
+/** Confere o token no servidor (/api/auth/eu). Devolve o usuário, ou null se a
+ * sessão não vale mais. Um pedido cancelado rejeita em vez de devolver null:
+ * cancelamento (ex.: a montagem dupla do StrictMode) não é sessão inválida. */
+export async function revalidarSessao(
+  apiUrl: string,
+  token: string,
+  signal: AbortSignal,
+  fetchFn: typeof fetch = fetch,
+): Promise<SessaoUsuario | null> {
+  try {
+    const response = await fetchFn(`${apiUrl}/api/auth/eu`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal,
+    });
+    return response.ok ? ((await response.json()) as SessaoUsuario) : null;
+  } catch (erro) {
+    if (signal.aborted) throw erro;
+    return null;
+  }
+}

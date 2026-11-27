@@ -1,6 +1,6 @@
 """Contratos Pydantic da API (P5). O GeoJSON segue como formato no fio."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field
 
@@ -42,24 +42,29 @@ class FeatureFull(BaseModel):
     properties: BuildingPropertiesFull
 
 
-class FeatureCollectionLight(BaseModel):
-    type: str = "FeatureCollection"
-    name: str = "buildings"
-    features: List[FeatureLight] = Field(default_factory=list)
-
-
-class FeatureCollectionFull(BaseModel):
-    type: str = "FeatureCollection"
-    name: str = "buildings"
-    features: List[FeatureFull] = Field(default_factory=list)
-
-
 class StatsResponse(BaseModel):
     total: int = 0
     by_tipo: Dict[str, int] = Field(default_factory=dict)
     by_bairro: Dict[str, int] = Field(default_factory=dict)
     area_total_m2: Optional[float] = None
     area_media_m2: Optional[float] = None
+
+
+class PredictUsoIn(BaseModel):
+    """Pedido de previsão: o ID numérico de uma edificação."""
+
+    id: str = Field(pattern=r"^\d{1,12}$", description="ID numérico da edificação")
+
+
+class PredictUsoOut(BaseModel):
+    """Uso previsto (só para prédios sem uso oficial; nos demais vem nulo)."""
+
+    id: str
+    tipo_oficial: str
+    tipo_previsto: Optional[str] = None
+    confianca: Optional[float] = None
+    probabilidades: Dict[str, float] = Field(default_factory=dict)
+    versao_modelo: str
 
 
 class UserCreate(BaseModel):
