@@ -16,7 +16,7 @@ mariadb-data/
 data/raw/cnefe/
 data/raw/cnefe_json/
 data/raw/qgis/
-data/raw/overture/edificacoes_overture.geojson
+#data/raw/overture/edificacoes_overture.geojson
 
 # Arquivos de dados fornecidos (não fazem parte do projeto)
 overture-*.zip
