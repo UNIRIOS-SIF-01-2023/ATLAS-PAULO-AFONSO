@@ -9,7 +9,7 @@ import os
 import time
 from concurrent.futures import CancelledError, ThreadPoolExecutor
 from contextlib import asynccontextmanager
-from threading import Event, Lock
+from threading import Event, Lock, Thread
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,15 +21,32 @@ import shapely
 from shapely.geometry import box
 
 from . import auth, db
+from .ia import modelo as ia_modelo
+from .ia.dados import de_linhas
 from .overview import LEVEL_CELL_DEG, build_overview
-from .schemas import AuthToken, UserCreate, UserLogin, UserPublic
+from .schemas import AuthToken, PredictUsoIn, PredictUsoOut, UserCreate, UserLogin, UserPublic
 from .tile_cache import TileCache
 
 logger = logging.getLogger(__name__)
 
 
+def _ler_base_ia():
+    return de_linhas(db.fetch_buildings_for_model())
+
+
+def _aquecer_previsoes():
+    """Calcula as previsões ao subir, para o primeiro clique não esperar (~segundos)."""
+    try:
+        ia_modelo.estado.previsoes(current_version(), _ler_base_ia)
+    except Exception:
+        logger.exception("não deu para pré-calcular as previsões de uso")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    ia_modelo.estado.payload = ia_modelo.carregar()
+    if ia_modelo.estado.payload is not None:
+        Thread(target=_aquecer_previsoes, daemon=True, name="ia-warmup").start()
     yield
 
 
@@ -448,6 +465,33 @@ def search(
 ):
     """Busca para a barra do mapa: prédios e bairros com um ponto para centralizar."""
     return db.search(q, limit=limit)
+
+
+MODELO_INDISPONIVEL = "Modelo de uso indisponível no servidor (rode scripts/treinar_uso.py)."
+
+
+@app.post("/api/predict-uso", response_model=PredictUsoOut)
+def predict_uso(entrada: PredictUsoIn, usuario: dict = Depends(auth.get_current_user)):
+    """Uso estimado pelo classificador para um prédio sem uso oficial (backend/ia)."""
+    if ia_modelo.estado.payload is None:
+        raise HTTPException(status_code=503, detail=MODELO_INDISPONIVEL)
+    memo = ia_modelo.estado.previsoes(current_version(), _ler_base_ia)
+    building_id = int(entrada.id)
+    if building_id not in memo["tipos"]:
+        raise HTTPException(status_code=404, detail="Prédio não encontrado.")
+    # Prédio com uso oficial não recebe previsão: o modelo só estima os desconhecidos.
+    previsao = memo["previsoes"].get(building_id, {})
+    return {"id": entrada.id, "tipo_oficial": memo["tipos"][building_id],
+            "versao_modelo": ia_modelo.estado.versao_modelo(), **previsao}
+
+
+@app.get("/api/predict-uso/modelo")
+def predict_uso_modelo(usuario: dict = Depends(auth.get_current_user)):
+    """Métricas e dados do modelo (modelo_uso.json), para a seção "Sobre o modelo"."""
+    info = ia_modelo.carregar_info() if ia_modelo.estado.payload is not None else None
+    if info is None:
+        raise HTTPException(status_code=503, detail=MODELO_INDISPONIVEL)
+    return info
 
 
 @app.post("/api/auth/cadastro", response_model=AuthToken, status_code=201)

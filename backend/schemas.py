@@ -50,6 +50,23 @@ class StatsResponse(BaseModel):
     area_media_m2: Optional[float] = None
 
 
+class PredictUsoIn(BaseModel):
+    """Pedido de previsão: o ID numérico de uma edificação."""
+
+    id: str = Field(pattern=r"^\d{1,12}$", description="ID numérico da edificação")
+
+
+class PredictUsoOut(BaseModel):
+    """Uso previsto (só para prédios sem uso oficial; nos demais vem nulo)."""
+
+    id: str
+    tipo_oficial: str
+    tipo_previsto: Optional[str] = None
+    confianca: Optional[float] = None
+    probabilidades: Dict[str, float] = Field(default_factory=dict)
+    versao_modelo: str
+
+
 class UserCreate(BaseModel):
     """Cadastro: nome, e-mail e senha (6–72 caracteres; teto do bcrypt)."""
 
