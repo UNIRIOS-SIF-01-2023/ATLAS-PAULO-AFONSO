@@ -22,7 +22,7 @@ import { countFootprints, countOverviewCells, legendSource, OVERVIEW_LEVELS, typ
 import { BuildingCard, type BuildingProps } from './components/BuildingCard';
 import { SobreModelo } from './components/SobreModelo';
 import { AuthBox, AuthScreen, type AuthUser } from './components/AuthBox';
-import { authHeaders, guardarSessao, lerSessao, limparSessao } from './session';
+import { authHeaders, guardarSessao, lerSessao, limparSessao, revalidarSessao } from './session';
 import { Icon } from './components/Icon';
 import { LayersPanel } from './components/LayersPanel';
 import { MapControls } from './components/MapControls';
@@ -194,21 +194,16 @@ export default function App() {
       return;
     }
     const controller = new AbortController();
-    fetch(`${API_URL}/api/auth/eu`, {
-      headers: { Authorization: `Bearer ${sessao.token}` },
-      signal: controller.signal,
-    })
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json();
-      })
-      .then((u) => setUser(u))
-      .catch((err: unknown) => {
-        // Abortado (StrictMode monta o efeito duas vezes) não é sessão inválida.
-        if (err instanceof DOMException && err.name === 'AbortError') return;
+    revalidarSessao(API_URL, sessao.token, controller.signal)
+      .then((u) => {
+        if (u) {
+          setUser(u);
+          return;
+        }
         limparSessao();
         setUser(null);
       })
+      .catch(() => { /* cancelado: a sessão continua guardada */ })
       .finally(() => setSessaoPronta(true));
     return () => controller.abort();
   }, []);

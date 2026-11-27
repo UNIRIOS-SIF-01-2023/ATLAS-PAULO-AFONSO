@@ -101,14 +101,7 @@ Cada endereço do QG vira uma linha de `ENDERECOS` (a combinação `COD_UNICO` +
 
 ### Dados brutos (não versionados)
 
-A pasta `data/raw/` está no `.gitignore`, então **quem clona o repositório precisa obter os arquivos**:
-
-| Arquivo | Caminho | Como obter |
-| --- | --- | --- |
-| Overture (janela e município) | `data/raw/overture/` | A documentar (origem e parâmetros do download) |
-| CNEFE/QG | `data/raw/qg/qg_810_endereco_Munic2924009.json` | A documentar (download do IBGE) |
-| Contorno do município | `data/raw/municipio_boundary.geojson` | A documentar (origem) |
-| OSM (opcional) | `data/raw/osm/osm_buildings_paulo_afonso.geojson` | `scripts/fetch_osm_buildings.py` |
+A pasta `data/raw/` está no `.gitignore`, então **quem clona o repositório precisa obter os arquivos**. A origem, a licença, o tamanho e como baixar cada um estão em [`datasets/README.md`](datasets/README.md).
 
 Os caminhos lidos pela carga ficam em `importacao/config.py` (`OVERTURE_FILES`, `OSM_BUILDINGS`, `MUNICIPIO_BOUNDARY` e `QG_ENDERECOS`). Se algum arquivo tiver outro nome ou estiver em outra pasta, ajuste lá. Os caminhos são relativos: rode a carga sempre a partir da raiz do repositório.
 
