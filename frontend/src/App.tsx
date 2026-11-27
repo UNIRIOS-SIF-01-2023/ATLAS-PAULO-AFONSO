@@ -201,7 +201,9 @@ export default function App() {
         return response.json();
       })
       .then((u) => setUser(u))
-      .catch(() => {
+      .catch((err: unknown) => {
+        // Abortado (StrictMode monta o efeito duas vezes) não é sessão inválida.
+        if (err instanceof DOMException && err.name === 'AbortError') return;
         limparSessao();
         setUser(null);
       })
