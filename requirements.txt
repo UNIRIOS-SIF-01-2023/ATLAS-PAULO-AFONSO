@@ -1,0 +1,6 @@
+# Dependências Python do projeto (API, carga e IA): pip install -r requirements.txt
+-r backend/requirements.txt
+
+# Testes (python -m pytest tests -q)
+pytest
+httpx

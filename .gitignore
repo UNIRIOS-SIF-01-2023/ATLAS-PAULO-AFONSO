@@ -38,3 +38,7 @@ MATEMATICA.md
 frontend/.env
 frontend/.env.*
 !.env.example
+
+# Ambientes virtuais e dependências (qualquer nome/pasta)
+venv/
+node_modules/
