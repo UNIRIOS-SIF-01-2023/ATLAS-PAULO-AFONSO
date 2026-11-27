@@ -8,14 +8,14 @@ Visualizador de **edificações reais** sobre um mapa interativo, aplicado a Pau
 
 Projeto da turma de Sistemas de Informação, Paulo Afonso – BA.
 
-| Função | Nome |
-| --- | --- |
-| Líder da equipe | Caio Lúcio |
-| Membro | Arthur Henrique |
-| Membro | Elliton Luís |
-| Membro | Rafael Santos |
-| Membro | Luís Gustavo |
-| Membro | João Almeida |
+| Função | Nome | GitHub |
+| --- | --- | --- |
+| Líder da equipe | Caio Lúcio | [@CaioLuc](https://github.com/CaioLuc) |
+| Membro | Arthur Henrique | [@ArthurThuko](https://github.com/ArthurThuko) |
+| Membro | Elliton Luís Correia da Silva Júnior | [@Elliton-Luis](https://github.com/Elliton-Luis) |
+| Membro | Rafael Santos | [@RafaSSii](https://github.com/RafaSSii) |
+| Membro | Luís Gustavo | [@GTHLIMA](https://github.com/GTHLIMA) |
+| Membro | João Vítor Almeida | [@dunkexpial](https://github.com/dunkexpial) |
 
 Repositório: <https://github.com/NOXXD-COMPANY/ATLAS-PAULO-AFONSO>
 
@@ -99,15 +99,15 @@ A carga grava cada ponto do QG (61.965) em `ENDERECOS` e cada polígono em `EDIF
 
 Cada endereço do QG vira uma linha de `ENDERECOS` (a combinação `COD_UNICO` + `COD_ESPECIE` é única) e cada polígono, uma linha de `EDIFICACOES`; os polígonos do OSM entram com `ID_ORIGEM` `osm-<id>` em `EDIFICACAO_ORIGEM`.
 
-### Dados brutos (não versionados)
+### Dados brutos
 
-A pasta `data/raw/` está no `.gitignore`, então **quem clona o repositório precisa obter os arquivos**. A origem, a licença, o tamanho e como baixar cada um estão em [`datasets/README.md`](datasets/README.md).
+Os arquivos que a carga lê **estão no repositório** em `data/raw/` (cerca de 61 MB, cada um abaixo de 50 MB): o Overture municipal e a janela do centro, e o CNEFE do município. A origem, a licença, o tamanho e como baixar cada um de novo estão em [`datasets/README.md`](datasets/README.md).
 
 Os caminhos lidos pela carga ficam em `importacao/config.py` (`OVERTURE_FILES`, `OSM_BUILDINGS`, `MUNICIPIO_BOUNDARY` e `QG_ENDERECOS`). Se algum arquivo tiver outro nome ou estiver em outra pasta, ajuste lá. Os caminhos são relativos: rode a carga sempre a partir da raiz do repositório.
 
 ## Como rodar
 
-Pré-requisitos: **Python 3.10 ou superior** (a API usa a sintaxe `str | None`), Node.js, e o `mariadb`/`mariadbd` do sistema já instalados (não precisa rodar o MariaDB como serviço, pois o script sobe uma instância local). Os arquivos de dados brutos devem estar em `data/raw/` (ver acima).
+Pré-requisitos: **Python 3.10 ou superior** (a API usa a sintaxe `str | None`), Node.js, e o `mariadb`/`mariadbd` do sistema já instalados (não precisa rodar o MariaDB como serviço, pois o script sobe uma instância local). Os arquivos de dados brutos já vêm no repositório em `data/raw/` (ver acima).
 
 ```bash
 # 1) Ambiente Python (uma vez)
@@ -443,7 +443,7 @@ Também há um índice `FULLTEXT` em `LOGRADOURO_NUM` e `ESTABELECIMENTO`.
 
 ## Classificador de uso (IA)
 
-**Eixo: Machine Learning (classificação supervisionada).**
+**Eixo: Machine Learning (classificação supervisionada).** O uso de IA generativa no desenvolvimento está declarado em [`docs/declaracao-uso-ia.md`](docs/declaracao-uso-ia.md).
 
 Cerca de 58% dos prédios (32.071 de 55.255) não têm endereço no CNEFE e ficam com uso `desconhecido`. Um classificador treinado nos prédios rotulados estima o uso desses prédios, com uma confiança para cada previsão.
 
@@ -680,7 +680,7 @@ scripts/
   schema.sql        esquema do banco
   mysql-local.cnf   tmpdir do MariaDB
   fetch_osm_buildings.py   baixa polígonos do OSM (API Overpass) para data/raw/osm/
-data/raw/           arquivos de dados (não versionados; ver datasets/README.md)
+data/raw/           dados brutos que a carga lê (Overture e CNEFE; ver datasets/README.md)
 README.md
 requirements.txt    dependências Python (API, carga, IA e testes)
 .env.example        variáveis de ambiente sem valores reais
