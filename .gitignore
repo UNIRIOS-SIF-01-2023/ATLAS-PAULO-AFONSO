@@ -11,12 +11,12 @@ __pycache__/
 .mysql-data/
 mariadb-data/
 
-# Dados brutos: só os arquivos que a carga lê vão para o GitHub (ver datasets/README.md).
-# Ficam fora as cópias duplicadas, o zip do CNEFE e o projeto do QGIS.
+# Dados brutos: os arquivos que a carga lê (importacao/config.py) vão para o GitHub
+# (ver datasets/README.md). Ficam fora o zip do CNEFE, a cópia em cnefe_json/ e o
+# projeto do QGIS.
 data/raw/cnefe/
 data/raw/cnefe_json/
 data/raw/qgis/
-#data/raw/overture/edificacoes_overture.geojson
 
 # Arquivos de dados fornecidos (não fazem parte do projeto)
 overture-*.zip

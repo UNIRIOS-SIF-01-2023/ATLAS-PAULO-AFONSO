@@ -1,6 +1,6 @@
 # Dados do Atlas Urbano
 
-Os dados brutos ficam em `data/raw/` e **estão versionados no repositório**: os três arquivos que a carga lê somam cerca de 61 MB, cada um abaixo do limite de 50 MB do enunciado. Quem clona já tem tudo para rodar a carga, sem baixar nada. Esta página diz de onde vem cada arquivo, a licença, o tamanho e como obtê-lo. Os caminhos que a carga lê estão em `importacao/config.py`.
+Os dados brutos ficam em `data/raw/` e **estão versionados no repositório**: os quatro arquivos que a carga lê somam cerca de 92 MB, cada um abaixo do limite de 50 MB do enunciado. Quem clona já tem tudo para rodar a carga, sem baixar nada. Esta página diz de onde vem cada arquivo, a licença, o tamanho e como obtê-lo. Os caminhos que a carga lê estão em `importacao/config.py`.
 
 Itens marcados com **[a confirmar]** dependem de informação que só a equipe tem (como o arquivo foi baixado). Preencham antes da entrega final.
 
@@ -9,6 +9,7 @@ Itens marcados com **[a confirmar]** dependem de informação que só a equipe t
 | Arquivo (em `data/raw/`) | Fonte | Licença | Tamanho | Registros | Obrigatório | No repositório |
 | --- | --- | --- | --- | --- | --- | --- |
 | `overture/overture-2026-08-19.0-building-municipio.geojson` | Overture Maps, tema *buildings*, release `2026-08-19.0` | ODbL-1.0 | 31,5 MB | 55.255 polígonos | Sim | Sim |
+| `overture/edificacoes_overture.geojson` | Cópia idêntica do arquivo municipal (mesmo conteúdo, conferido por hash); é o primeiro da lista `OVERTURE_FILES` em `importacao/config.py` | ODbL-1.0 | 31,5 MB | 55.255 polígonos | Não (a carga junta os arquivos sem repetir IDs) | Sim |
 | `overture/overture-2026-08-19.0-building--38.236,-9.410,-38.212,-9.395.geojson` | Overture Maps, mesma release, janela do centro | ODbL-1.0 | 4,5 MB | 8.382 polígonos | Não (já contido no municipal) | Sim |
 | `qg/qg_810_endereco_Munic2924009.json` | IBGE, CNEFE do Censo 2022, município 2924009 (Paulo Afonso/BA) | Dados públicos do IBGE (citar a fonte) | 25,0 MB | 61.965 pontos | Sim | Sim |
 | `osm/osm_buildings_paulo_afonso.geojson` | OpenStreetMap via API Overpass | ODbL-1.0 | — | — | Não (fallback) | Não (gerado pelo script) |

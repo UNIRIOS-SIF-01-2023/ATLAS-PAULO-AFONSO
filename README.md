@@ -17,7 +17,7 @@ Projeto da turma de Sistemas de Informação, Paulo Afonso – BA.
 | Membro | Luís Gustavo | [@GTHLIMA](https://github.com/GTHLIMA) |
 | Membro | João Vítor Almeida | [@dunkexpial](https://github.com/dunkexpial) |
 
-Repositório: <https://github.com/NOXXD-COMPANY/ATLAS-PAULO-AFONSO>
+Repositório oficial: <https://github.com/UNIRIOS-SIF-01-2023/ATLAS-PAULO-AFONSO>
 
 ## Sumário
 
@@ -101,7 +101,7 @@ Cada endereço do QG vira uma linha de `ENDERECOS` (a combinação `COD_UNICO` +
 
 ### Dados brutos
 
-Os arquivos que a carga lê **estão no repositório** em `data/raw/` (cerca de 61 MB, cada um abaixo de 50 MB): o Overture municipal e a janela do centro, e o CNEFE do município. A origem, a licença, o tamanho e como baixar cada um de novo estão em [`datasets/README.md`](datasets/README.md).
+Os arquivos que a carga lê **estão no repositório** em `data/raw/` (cerca de 92 MB, cada um abaixo de 50 MB): o Overture municipal (e uma cópia dele, `edificacoes_overture.geojson`), a janela do centro e o CNEFE do município. A origem, a licença, o tamanho e como baixar cada um de novo estão em [`datasets/README.md`](datasets/README.md).
 
 Os caminhos lidos pela carga ficam em `importacao/config.py` (`OVERTURE_FILES`, `OSM_BUILDINGS`, `MUNICIPIO_BOUNDARY` e `QG_ENDERECOS`). Se algum arquivo tiver outro nome ou estiver em outra pasta, ajuste lá. Os caminhos são relativos: rode a carga sempre a partir da raiz do repositório.
 
@@ -524,6 +524,7 @@ Também há um índice `FULLTEXT` em `LOGRADOURO_NUM` e `ESTABELECIMENTO`.
 Cerca de 58% dos prédios (32.071 de 55.255) não têm endereço no CNEFE e ficam com uso `desconhecido`. Um classificador treinado nos prédios rotulados estima o uso desses prédios, com uma confiança para cada previsão.
 
 - **Problema e público**: quem consulta o mapa (gestor público, pesquisador, equipe de campo) não sabe o uso de mais da metade dos prédios. Conferir todos em campo é caro; a estimativa ajuda a priorizar a conferência e a ler tendências por região.
+- **Objetivo do recurso**: estimar, com uma confiança, o uso (residencial, comercial, serviço etc.) de cada prédio sem endereço no CNEFE e mostrar essa estimativa no cartão do prédio, sempre separada do uso oficial, para orientar a conferência de campo e a leitura do mapa.
 - **Onde aparece no sistema**: ao clicar num prédio sem uso oficial, o cartão mostra o bloco **"Uso estimado por IA"** com a classe prevista e a confiança (ex.: "Residencial · Previsto por IA · 93%"), sempre ao lado de "Uso oficial: não identificado". O link **"Sobre o modelo"** (no cartão e no painel lateral, seção "Inteligência artificial") abre uma janela com o que o modelo faz, os dados, as métricas por classe e os limites.
 - **Erros tratados**: sem modelo no servidor, a API responde 503 e o cartão mostra "Modelo de uso indisponível no servidor"; ID inválido dá 422, prédio inexistente 404, sem login 401; sem conexão, o cartão avisa "Sem conexão com o servidor para estimar o uso".
 - **Tecnologias**: scikit-learn 1.9.1 (Random Forest, Gradient Boosting, regressão logística, calibração), shapely 2 e NumPy (features geométricas e de vizinhança), joblib (modelo salvo), FastAPI (rota), React (cartão e "Sobre o modelo").
@@ -542,10 +543,19 @@ As features dependem da vizinhança de cada prédio, então a API não calcula u
 
 - **Features** (`backend/ia/features.py`): só o que todo prédio tem, ou seja, a forma do polígono, a fonte do footprint e a vizinhança num raio de até 150 m. Bairro, endereço e pavimentos ficam de fora, porque só os prédios rotulados têm esses dados.
 - **Modelos comparados** (`backend/ia/treino.py`): classe mais frequente e regressão logística (as duas linhas de base), Random Forest e Gradient Boosting. Validação cruzada em 5 folds, estratificada e espacial (células de 500 m), com os rótulos do teste escondidos das features de vizinhança. O modelo final é calibrado (sigmoid).
-- **Primeiras métricas** (relatório completo em [`docs/ia/avaliacao_modelo.md`](docs/ia/avaliacao_modelo.md)): na CV espacial, o melhor Random Forest chega a F1 macro de 0,167, contra 0,137 da classe mais frequente. O modelo acerta residencial (F1 0,96), mas quase não reconhece comercial (recall 0,07) e nunca prevê as classes raras.
+- **Métricas** (relatório completo em [`docs/ia/avaliacao_modelo.md`](docs/ia/avaliacao_modelo.md)): na CV espacial, o melhor Random Forest chega a F1 macro de 0,167, contra 0,137 da classe mais frequente. O modelo acerta residencial (F1 0,96), mas quase não reconhece comercial (recall 0,07) e nunca prevê as classes raras.
 - **Artefatos** (pasta [`ai-model/`](ai-model/README.md)): `ai-model/models/modelo_uso.joblib` (30 MB, scikit-learn 1.9.1), `ai-model/models/modelo_uso.json` (métricas e versão) e o notebook [`ai-model/notebooks/eda_e_avaliacao.ipynb`](ai-model/notebooks/eda_e_avaliacao.ipynb) (EDA da base e leitura das métricas, já executado).
 
 - **Na base inteira** (32.071 prédios sem uso oficial), o modelo prevê 31.211 residenciais, 749 comerciais, 109 agropecuários e 2 de serviço; a confiança média é 0,89, e 829 previsões ficam abaixo de 0,6.
+
+**Limitações do recurso de IA**
+
+- **Desempenho desigual entre classes**: o F1 macro (0,167 na CV espacial) supera o baseline (0,137) por pouco. Residencial é bem reconhecido, comercial tem precisão de 0,62 mas recall de 0,07, e as classes raras (15 a 79 exemplos cada) não foram acertadas na avaliação.
+- **Viés de seleção**: o modelo aprende com prédios que têm endereço no CNEFE, mas prevê os que não têm. Esses são menores (mediana de 58 m² contra 106 m² dos residenciais rotulados) e podem ser anexos, garagens ou galpões, usos sem classe própria no CNEFE. A CV espacial mede esse efeito só em parte.
+- **Uso adequado**: é uma estimativa, nunca dado oficial. Serve para priorizar conferência de campo e ler tendências; não serve para afirmar o uso de um prédio específico nem para contar as classes raras.
+- **Dependência dos dados**: as features usam a vizinhança, então a previsão muda se a base for reimportada com outros prédios; o modelo precisa ser retreinado quando os dados mudarem de forma relevante.
+
+**Aplicação publicada**: não há; o sistema com o recurso de IA roda localmente, seguindo [Como rodar](#como-rodar).
 
 **Como rodar com a IA**: siga [Como rodar](#como-rodar). O modelo já vem versionado em `ai-model/models/modelo_uso.joblib` e a API o carrega sozinha ao subir (o log avisa se ele faltar; aí as rotas de IA respondem 503 e o resto do sistema segue normal). Com o banco carregado, abra um prédio cinza ("Não identificado") no mapa para ver a estimativa.
 
@@ -581,7 +591,7 @@ Suítes em [`tests/`](tests/README.md) (backend e carga, com o registro dos test
 ./.venv/bin/python -m pytest tests/importacao -q # só a carga
 ```
 
-Os testes de integração de cobertura assumem os números da carga atual (87.951 registros) e precisam ser atualizados quando os dados mudarem.
+Os testes de integração rodam contra o MariaDB local com a carga atual (55.255 edificações) e são pulados se o banco estiver fora do ar.
 
 No frontend, `frontend/tests/` cobre com o `node:test` a lógica sem navegador: níveis de detalhe, URLs versionadas, expressões e contagens do mapa (`mapTiles`), altura dos prédios (`constants`) e formatação de texto e área (`format`).
 
@@ -613,7 +623,7 @@ A coluna **Estado** é uma avaliação do código atual (MVP) contra a documenta
 | ID | Requisito | Categoria | Estado | Observação |
 | --- | --- | --- | --- | --- |
 | RNF01 | Custo total R$ 0,00 | Econômico | Atendido | Apenas dados e ferramentas abertos; mapa base do OpenFreeMap, gratuito e sem chave de API |
-| RNF02 | Reprodutibilidade a partir do pacote e das receitas | Manutenibilidade | Parcial | Há scripts, `requirements.txt` e testes, mas os dados brutos são manuais, a origem de parte deles não está documentada e a carga aponta para um banco diferente do script de subida |
+| RNF02 | Reprodutibilidade a partir do pacote e das receitas | Manutenibilidade | Parcial | Há scripts, `requirements.txt`, testes e os dados brutos versionados em `data/raw/`, com origem, licença e tamanho em `datasets/README.md`; falta confirmar a ferramenta ou página usada em alguns downloads |
 | RNF03 | Cobertura de 100% do perímetro urbano processado | Completude | Parcial | Overture municipal (52.809 prédios) + fallback OSM (400); faltam os ~3,8 mil endereços ainda sem polígono |
 | RNF04 | Taxa de associação endereço–edificação ≥ 85% (piloto: 93%) | Qualidade de dados | Atendido | 93,9% dos endereços caem em polígono (58.178 de 61.965) |
 | RNF05 | Nenhum dado pessoal armazenado ou publicado | Privacidade | A verificar | Guarda-se endereço e estabelecimento; conferir se `estabelecimento` não expõe dados pessoais |
@@ -680,14 +690,14 @@ Atores: **Cliente** (consulta mapa e relatórios) e **Equipe Mantenedora** (carg
 - **Credenciais**: a carga não guarda mais usuário nem senha em `import_data.py`; usa `backend/config.py` e `backend/db.py`. Uma senha que tenha sido versionada antes continua no histórico do Git e deve ser trocada.
 - **Níveis de detalhe do mapa**: de perto, polígonos (zoom 14+); entre os zooms 12 e 14, os prédios pequenos viram pontos do tamanho real e os grandes continuam polígonos; mais longe, grades de densidade de ~88 m e ~175 m. O servidor pré-gera os tiles dos zooms 12 a 14 em segundo plano.
 - **Sobreposição OSM × Overture por interseção simples**: a carga descarta todo polígono do OSM que intersecta algum do Overture (o Overture já inclui prédios derivados do OSM). Um prédio do OSM que apenas encosta num do Overture também é descartado.
-- **"Edificação" é ambígua**: a tabela tem uma linha por endereço, então 87.951 registros não são 87.951 prédios. O relatório rotula a contagem como "Edificações".
+- **Edificação ≠ endereço**: cada linha de `EDIFICACOES` é um polígono (55.255 na carga atual); os 61.965 endereços do CNEFE ficam em `ENDERECOS`, ligados aos prédios por `ENDERECO_EDIFICACAO`, e um prédio pode ter vários endereços. O relatório conta polígonos e os rotula como "Edificações".
 - **Prédios sem endereço nem tipo** (~26 mil): o Overture municipal trouxe a forma, mas sem uso conhecido (ficam `desconhecido` até conferência de campo ou 2ª fonte com atributo).
 - **`em_cobertura` hoje não filtra nada**: a janela de cobertura (`JANELA_COBERTURA`, fixa no código) passou a cobrir o município inteiro.
 - **Contrato Pydantic não ligado**: `schemas.py` é usado nos testes, mas as rotas não declaram `response_model`; a documentação em `/docs` não mostra o formato das respostas.
 - **`MBRIntersects` é aproximado**: compara retângulos envolventes, então o filtro `bbox` pode trazer prédios que só encostam na área.
 - **Estatísticas de área** incluem os círculos artificiais de ~5 m das bolinhas; o RF08 pede mediana, e hoje há só média.
 - **Coleta do OSM**: o cache do `bbox` é lido, mas nunca gravado; só `ways` são consultados (relações com `building` são ignoradas); e quadrantes que falham na repescagem são descartados sem aviso final.
-- **Origem de alguns dados não documentada**: Overture, CNEFE e o contorno do município são arquivos manuais (ver [Dados brutos](#dados-brutos-não-versionados)).
+- **Origem exata de alguns downloads a confirmar**: os dados estão versionados em `data/raw/` e descritos em `datasets/README.md`, mas a ferramenta usada no download do Overture, a página do IBGE do CNEFE e a origem do contorno do município ainda estão marcadas como "a confirmar" (ver [Dados brutos](#dados-brutos)).
 - **Acoplamento por *magic string***: o frontend identifica "endereço sem prédio" pelo valor `fonte = 'QG/CNEFE'`. Um campo explícito (ex.: `tem_poligono`) seria mais robusto.
 - **Carga não incremental**: o rascunho é reescrito do zero e a promoção apaga e recopia todas as tabelas de produção (numa transação, então uma falha deixa a produção intacta). O `TRUNCATE` do rascunho confirma implicitamente no MySQL, então a carga do rascunho em si não é atômica.
 - **Heurística espacial simples**: se mais de um polígono contém o ponto, vale o primeiro devolvido pelo índice espacial, sem critério explícito; fora dos polígonos, vale o mais próximo dentro da tolerância de ~15 m.
