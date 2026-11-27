@@ -16,6 +16,7 @@ interface Props {
   soDoSelecionado: boolean;
   onSoDoSelecionado: (value: boolean) => void;
   hasSelection: boolean;
+  onSobreModelo: () => void;
 }
 
 export function LayersPanel(props: Props) {
@@ -79,6 +80,12 @@ export function LayersPanel(props: Props) {
         {props.showPontos && props.soDoSelecionado && !props.hasSelection && (
           <p className="muted small">Selecione um prédio no mapa para ver os endereços dele.</p>
         )}
+      </div>
+
+      <h2 className="section-label">Inteligência artificial</h2>
+      <div className="option-card">
+        <p className="muted small">Prédios sem uso oficial recebem uma estimativa do classificador ao abrir o cartão.</p>
+        <button type="button" className="link-button" onClick={props.onSobreModelo}>Sobre o modelo</button>
       </div>
 
       <p className="hint">

@@ -20,6 +20,7 @@ import {
 } from './mapLayers';
 import { countFootprints, countOverviewCells, legendSource, OVERVIEW_LEVELS, type MapMeta } from './mapTiles';
 import { BuildingCard, type BuildingProps } from './components/BuildingCard';
+import { SobreModelo } from './components/SobreModelo';
 import { AuthBox, AuthScreen, type AuthUser } from './components/AuthBox';
 import { authHeaders, guardarSessao, lerSessao, limparSessao } from './session';
 import { Icon } from './components/Icon';
@@ -163,6 +164,7 @@ export default function App() {
   const [soDoSelecionado, setSoDoSelecionado] = useState(false);
   const [hiddenTipos, setHiddenTipos] = useState<ReadonlySet<string>>(new Set());
   const [showReport, setShowReport] = useState(false);
+  const [showSobreModelo, setShowSobreModelo] = useState(false);
   // O mapa cujo estilo terminou de carregar / que já tem as camadas de dados.
   // Guardar a instância, e não um booleano, evita usar um mapa novo (recriado
   // no hot reload) antes de o estilo dele carregar.
@@ -557,13 +559,14 @@ export default function App() {
         setSheetOpen(true);
         searchRef.current?.focus();
       } else if (event.key === 'Escape' && !typing) {
-        if (showReport) setShowReport(false);
+        if (showSobreModelo) setShowSobreModelo(false);
+        else if (showReport) setShowReport(false);
         else if (selectedId) closeSelection();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [showReport, selectedId, closeSelection]);
+  }, [showSobreModelo, showReport, selectedId, closeSelection]);
 
   // Sem JWT válido, nem o mapa monta: a tela de login não tem saída.
   if (!sessaoPronta) {
@@ -661,6 +664,8 @@ export default function App() {
               heightM={height}
               heightEstimated={heightEstimated}
               theme={theme}
+              apiUrl={API_URL}
+              onSobreModelo={() => setShowSobreModelo(true)}
               onClose={closeSelection}
               onCenter={() => selectedCenter && mapRef.current?.flyTo({ center: selectedCenter, zoom: Math.max(mapRef.current.getZoom(), ZOOM_PREDIO), padding: panelPadding(), essential: true })}
               onSelectAddress={(id) => select(id, selected3dFeature)}
@@ -681,6 +686,7 @@ export default function App() {
               soDoSelecionado={soDoSelecionado}
               onSoDoSelecionado={setSoDoSelecionado}
               hasSelection={Boolean(selectedId)}
+              onSobreModelo={() => setShowSobreModelo(true)}
             />
           )}
         </div>
@@ -725,6 +731,8 @@ export default function App() {
           <Report apiUrl={API_URL} theme={theme} onClose={() => setShowReport(false)} />
         </Suspense>
       )}
+
+      {showSobreModelo && <SobreModelo apiUrl={API_URL} onClose={() => setShowSobreModelo(false)} />}
     </div>
   );
 }
