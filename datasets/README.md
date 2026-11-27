@@ -1,18 +1,18 @@
 # Dados do Atlas Urbano
 
-Os dados brutos ficam em `data/raw/`, fora do GitHub (pasta listada no `.gitignore`; juntos somam cerca de 61 MB). Esta página diz de onde vem cada arquivo, a licença, o tamanho e como obtê-lo. Os caminhos que a carga lê estão em `importacao/config.py`.
+Os dados brutos ficam em `data/raw/` e **estão versionados no repositório**: os três arquivos que a carga lê somam cerca de 61 MB, cada um abaixo do limite de 50 MB do enunciado. Quem clona já tem tudo para rodar a carga, sem baixar nada. Esta página diz de onde vem cada arquivo, a licença, o tamanho e como obtê-lo. Os caminhos que a carga lê estão em `importacao/config.py`.
 
 Itens marcados com **[a confirmar]** dependem de informação que só a equipe tem (como o arquivo foi baixado). Preencham antes da entrega final.
 
 ## Resumo
 
-| Arquivo (em `data/raw/`) | Fonte | Licença | Tamanho | Registros | Obrigatório |
-| --- | --- | --- | --- | --- | --- |
-| `overture/overture-2026-08-19.0-building-municipio.geojson` | Overture Maps, tema *buildings*, release `2026-08-19.0` | ODbL-1.0 | 31,5 MB | 55.255 polígonos | Sim |
-| `overture/overture-2026-08-19.0-building--38.236,-9.410,-38.212,-9.395.geojson` | Overture Maps, mesma release, janela do centro | ODbL-1.0 | 4,5 MB | 8.382 polígonos | Não (já contido no municipal) |
-| `qg/qg_810_endereco_Munic2924009.json` | IBGE, CNEFE do Censo 2022, município 2924009 (Paulo Afonso/BA) | Dados públicos do IBGE (citar a fonte) | 25,0 MB | 61.965 pontos | Sim |
-| `osm/osm_buildings_paulo_afonso.geojson` | OpenStreetMap via API Overpass | ODbL-1.0 | — | — | Não (fallback) |
-| `municipio_boundary.geojson` | Contorno do município | **[a confirmar]** | — | — | Não (sem ele a carga não recorta) |
+| Arquivo (em `data/raw/`) | Fonte | Licença | Tamanho | Registros | Obrigatório | No repositório |
+| --- | --- | --- | --- | --- | --- | --- |
+| `overture/overture-2026-08-19.0-building-municipio.geojson` | Overture Maps, tema *buildings*, release `2026-08-19.0` | ODbL-1.0 | 31,5 MB | 55.255 polígonos | Sim | Sim |
+| `overture/overture-2026-08-19.0-building--38.236,-9.410,-38.212,-9.395.geojson` | Overture Maps, mesma release, janela do centro | ODbL-1.0 | 4,5 MB | 8.382 polígonos | Não (já contido no municipal) | Sim |
+| `qg/qg_810_endereco_Munic2924009.json` | IBGE, CNEFE do Censo 2022, município 2924009 (Paulo Afonso/BA) | Dados públicos do IBGE (citar a fonte) | 25,0 MB | 61.965 pontos | Sim | Sim |
+| `osm/osm_buildings_paulo_afonso.geojson` | OpenStreetMap via API Overpass | ODbL-1.0 | — | — | Não (fallback) | Não (gerado pelo script) |
+| `municipio_boundary.geojson` | Contorno do município | **[a confirmar]** | — | — | Não (sem ele a carga não recorta) | Não |
 
 ## Overture Maps: polígonos das edificações
 
@@ -48,7 +48,7 @@ Itens marcados com **[a confirmar]** dependem de informação que só a equipe t
   | 7 | Edificação em construção | 2.902 | desconhecido |
   | 8 | Estabelecimento religioso | 305 | religioso |
 
-- **Se o arquivo veio compactado** (`qg_810_endereco_Munic2924009.json.zip`), descompacte em `data/raw/qg/` antes da carga, que lê o JSON nesse caminho (`QG_ENDERECOS` em `importacao/config.py`): `unzip qg_810_endereco_Munic2924009.json.zip -d data/raw/qg/`.
+- **Já está no repositório** em `data/raw/qg/`. Se baixar de novo e o arquivo vier compactado (`qg_810_endereco_Munic2924009.json.zip`), descompacte em `data/raw/qg/` antes da carga, que lê o JSON nesse caminho (`QG_ENDERECOS` em `importacao/config.py`): `unzip qg_810_endereco_Munic2924009.json.zip -d data/raw/qg/`.
 - **Como obter [a confirmar]:** a página do IBGE de onde o arquivo foi baixado e o que significa o prefixo `qg_810` (o arquivo parece exportado de um SIG, pois traz `crs` e `name`). O IBGE publica as coordenadas do CNEFE 2022 por município no portal de downloads de Geociências, na área do Censo 2022. O código do município é `2924009`.
 
 ## OpenStreetMap: fallback opcional

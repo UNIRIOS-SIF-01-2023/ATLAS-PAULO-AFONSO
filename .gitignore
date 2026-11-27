@@ -10,11 +10,16 @@ __pycache__/
 # Dados locais (mesmo assim é um protótipo local)
 .mysql-data/
 mariadb-data/
-data/raw/
+
+# Dados brutos: só os arquivos que a carga lê vão para o GitHub (ver datasets/README.md).
+# Ficam fora as cópias duplicadas, o zip do CNEFE e o projeto do QGIS.
+data/raw/cnefe/
+data/raw/cnefe_json/
+data/raw/qgis/
+data/raw/overture/edificacoes_overture.geojson
 
 # Arquivos de dados fornecidos (não fazem parte do projeto)
 overture-*.zip
-qg_*.json*
 
 # Node
 frontend/node_modules/
