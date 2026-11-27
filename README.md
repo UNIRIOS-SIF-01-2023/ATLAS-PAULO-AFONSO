@@ -266,6 +266,8 @@ Visual em "vidro líquido", à maneira do Liquid Glass da Apple: painéis transl
 | `GET /api/map/meta` | Versão dos dados (entra nas URLs do mapa) e a área com prédios | 200 |
 | `GET /api/map/overview?level=` | Grade de densidade da visão afastada (GeoJSON); `level=0` ~175 m, `level=1` ~88 m | 200, 422 |
 | `GET /api/tiles/{z}/{x}/{y}.pbf?v=` | Tiles vetoriais (MVT) do mapa: pontos dos prédios pequenos nos zooms 12 a 14 (camada `dots`) e polígonos (camada `buildings`): os grandes desde o 12, todos a partir do 14 | 200, 404 |
+| `POST /api/predict-uso` | Corpo `{"id": "<ID numérico>"}`. Uso estimado pelo classificador: `tipo_oficial`, `tipo_previsto`, `confianca`, `probabilidades` por classe e `versao_modelo`. Prédio com uso oficial volta com `tipo_previsto: null` | 200, 401, 404, 422, 503 |
+| `GET /api/predict-uso/modelo` | Métricas, dados e versão do modelo (`backend/ia/modelo_uso.json`), usados na janela "Sobre o modelo" | 200, 401, 503 |
 
 Toda rota `/api` (exceto `/`, `/api/auth/cadastro` e `/api/auth/login`) exige `Authorization: Bearer <token>` e devolve 401 sem token válido. O front abre numa tela de login sem saída e revalida a sessão em `/api/auth/eu` a cada abertura.
 
@@ -448,18 +450,47 @@ Também há um índice `FULLTEXT` em `LOGRADOURO_NUM` e `ESTABELECIMENTO`.
 
 ## Classificador de uso (IA)
 
+**Eixo: Machine Learning (classificação supervisionada).**
+
 Cerca de 58% dos prédios (32.071 de 55.255) não têm endereço no CNEFE e ficam com uso `desconhecido`. Um classificador treinado nos prédios rotulados estima o uso desses prédios, com uma confiança para cada previsão.
+
+- **Problema e público**: quem consulta o mapa (gestor público, pesquisador, equipe de campo) não sabe o uso de mais da metade dos prédios. Conferir todos em campo é caro; a estimativa ajuda a priorizar a conferência e a ler tendências por região.
+- **Onde aparece no sistema**: ao clicar num prédio sem uso oficial, o cartão mostra o bloco **"Uso estimado por IA"** com a classe prevista e a confiança (ex.: "Residencial · Previsto por IA · 93%"), sempre ao lado de "Uso oficial: não identificado". O link **"Sobre o modelo"** (no cartão e no painel lateral, seção "Inteligência artificial") abre uma janela com o que o modelo faz, os dados, as métricas por classe e os limites.
+- **Erros tratados**: sem modelo no servidor, a API responde 503 e o cartão mostra "Modelo de uso indisponível no servidor"; ID inválido dá 422, prédio inexistente 404, sem login 401; sem conexão, o cartão avisa "Sem conexão com o servidor para estimar o uso".
+- **Tecnologias**: scikit-learn 1.9.1 (Random Forest, Gradient Boosting, regressão logística, calibração), shapely 2 e NumPy (features geométricas e de vizinhança), joblib (modelo salvo), FastAPI (rota), React (cartão e "Sobre o modelo").
+
+**Integração** (o navegador nunca acessa o modelo; ele roda no backend):
+
+```
+[Frontend React] --POST /api/predict-uso {id}--> [FastAPI main.py] --> [backend/ia/modelo.py]
+   cartão do prédio <--{tipo_previsto, confianca,--   valida (422/404/503)    features da base inteira
+   "Sobre o modelo" <-- probabilidades}                                       + predict_proba (cache por versão)
+                                                                                     ^
+[MariaDB: EDIFICACOES] --scripts/treinar_uso.py--> backend/ia/modelo_uso.joblib -----+ carregado ao subir a API
+```
+
+As features dependem da vizinhança de cada prédio, então a API não calcula um prédio isolado por pedido: ao subir, carrega o `modelo_uso.joblib`, monta as features da base inteira (como no treino) e guarda a previsão de cada prédio desconhecido; cada pedido só consulta esse resultado. Se os dados forem reimportados, a previsão é refeita na próxima consulta. Se o modelo foi treinado com outra lista de features, a API não o carrega (e responde 503) em vez de prever errado.
 
 - **Features** (`backend/ia/features.py`): só o que todo prédio tem, ou seja, a forma do polígono, a fonte do footprint e a vizinhança num raio de até 150 m. Bairro, endereço e pavimentos ficam de fora, porque só os prédios rotulados têm esses dados.
 - **Modelos comparados** (`backend/ia/treino.py`): classe mais frequente e regressão logística (as duas linhas de base), Random Forest e Gradient Boosting. Validação cruzada em 5 folds, estratificada e espacial (células de 500 m), com os rótulos do teste escondidos das features de vizinhança. O modelo final é calibrado (sigmoid).
 - **Primeiras métricas** (relatório completo em [`docs/ia/avaliacao_modelo.md`](docs/ia/avaliacao_modelo.md)): na CV espacial, o melhor Random Forest chega a F1 macro de 0,167, contra 0,137 da classe mais frequente. O modelo acerta residencial (F1 0,96), mas quase não reconhece comercial (recall 0,07) e nunca prevê as classes raras.
 - **Artefatos**: `backend/ia/modelo_uso.joblib` (30 MB, scikit-learn 1.9.1) e `backend/ia/modelo_uso.json` (métricas e versão).
 
-Para treinar de novo (MariaDB no ar e `.env` configurado; leva cerca de 3 minutos):
+- **Na base inteira** (32.071 prédios sem uso oficial), o modelo prevê 31.211 residenciais, 749 comerciais, 109 agropecuários e 2 de serviço; a confiança média é 0,89, e 829 previsões ficam abaixo de 0,6.
+
+**Como rodar com a IA**: siga [Como rodar](#como-rodar). O modelo já vem versionado em `backend/ia/modelo_uso.joblib` e a API o carrega sozinha ao subir (o log avisa se ele faltar; aí as rotas de IA respondem 503 e o resto do sistema segue normal). Com o banco carregado, abra um prédio cinza ("Não identificado") no mapa para ver a estimativa.
+
+Para treinar de novo (MariaDB no ar e `.env` configurado; leva cerca de 3 minutos; grava o modelo, o `modelo_uso.json` e o relatório `docs/ia/avaliacao_modelo.md`):
 
 ```bash
 ./.venv/bin/python scripts/treinar_uso.py
 ```
+
+**Capturas** (em `docs/imagens/`):
+
+| Prédio sem endereço com uso estimado | Sobre o modelo | Erro tratado (sem modelo no servidor) |
+| --- | --- | --- |
+| ![Cartão com uso estimado por IA](docs/imagens/ia-cartao-previsao.jpg) | ![Janela Sobre o modelo](docs/imagens/ia-sobre-o-modelo.jpg) | ![Cartão com erro 503](docs/imagens/ia-erro-sem-modelo.jpg) |
 
 ## Testes
 
@@ -616,15 +647,22 @@ backend/            API FastAPI (o frontend nunca acessa o MySQL diretamente)
                     /api/map/meta, /api/map/overview, /api/tiles; geração e pré-aquecimento dos tiles
   overview.py       grades de densidade da visão afastada
   tile_cache.py     cache em memória dos tiles comprimidos
-  schemas.py        contratos Pydantic (feature leve/completa, estatísticas)
+  schemas.py        contratos Pydantic (feature leve/completa, estatísticas, predict-uso)
+  ia/               classificador de uso (Machine Learning)
+    features.py     features de forma, fonte e vizinhança (iguais no treino e na API)
+    dados.py        linhas do banco → arrays do classificador
+    treino.py       comparação de modelos, CV estratificada e espacial, ajuste, calibração, relatório
+    modelo.py       carrega o modelo na API e prevê os prédios desconhecidos
+    modelo_uso.joblib / modelo_uso.json   modelo treinado e suas métricas
   tests/
     test_api.py     testes unitários, de contrato, de endpoint e de integração
+    test_ia_*.py    features, treino e rotas de IA (com modelo falso)
   requirements.txt  dependências Python do backend
 frontend/           React + Vite + TS + MapLibre GL
   src/App.tsx       mapa, seleção, legenda, URL compartilhável, atalhos e avisos
   src/mapLayers.ts  mapa base, fontes e camadas do MapLibre, filtros
   src/mapTiles.ts   níveis de detalhe, URLs versionadas, expressões e contagens
-  src/components/   SearchBox, LayersPanel, BuildingCard, MapControls, Icon
+  src/components/   SearchBox, LayersPanel, BuildingCard (com o uso estimado por IA), SobreModelo, MapControls, Icon
   src/Report.tsx    relatório (totais, filtros, exportar PDF)
   src/constants.ts  ordem, rótulos e cores dos tipos de uso; altura dos prédios
   src/format.ts     caixa de título, números e áreas em pt-BR
@@ -632,6 +670,7 @@ frontend/           React + Vite + TS + MapLibre GL
   src/main.tsx      ponto de entrada React (configura o worker do MapLibre)
   tests/            testes node:test de mapTiles, constants e format
 scripts/
+  treinar_uso.py    treina e avalia o classificador de uso (grava modelo, métricas e docs/ia/avaliacao_modelo.md)
   db.sh             sobe/para o MariaDB local
   run.sh            sobe tudo (banco, importação, backend, frontend)
   mysql-local.cnf   tmpdir do MariaDB (sem /var/tmp no ambiente)
