@@ -107,10 +107,86 @@ Os caminhos lidos pela carga ficam em `importacao/config.py` (`OVERTURE_FILES`, 
 
 ## Como rodar
 
-Pré-requisitos: **Python 3.10 ou superior** (a API usa a sintaxe `str | None`), Node.js, e o `mariadb`/`mariadbd` do sistema já instalados (não precisa rodar o MariaDB como serviço, pois o script sobe uma instância local). Os arquivos de dados brutos já vêm no repositório em `data/raw/` (ver acima).
+**Pré-requisitos**
+
+- **Python 3.10 a 3.14.** O 3.15 ainda não serve: o `pyclipper` (dependência do `mapbox-vector-tile`) não tem pacote pronto para ele, o pip tenta compilar, pede o Microsoft C++ Build Tools e aborta a instalação inteira. No Windows, use o lançador `py -3.14` (ou `py -3.13` etc.); confira as versões instaladas com `py -0p`.
+- **Node.js** (para o frontend).
+- **Git** (no Windows, o Git for Windows traz o `bash.exe`, usado pelo `scripts/db.sh`).
+- **MariaDB** instalado. Não precisa rodar como serviço: o `scripts/db.sh` sobe uma instância local na porta 3320. No Windows, o script espera o MariaDB em `C:\Program Files\MariaDB 13.0\`.
+- Os dados brutos já vêm no repositório em `data/raw/` (ver acima).
+
+### Windows (cmd), passo a passo
+
+Rode um comando por vez, na pasta do projeto (troque o caminho pelo da sua máquina):
+
+```cmd
+cd /d C:\caminho\para\o\repositorio
+```
+
+1. Ambiente Python com o 3.14 (uma vez):
+
+   ```cmd
+   py -3.14 -m venv .venv
+   .venv\Scripts\python.exe --version
+   .venv\Scripts\python.exe -m pip install -r requirements.txt
+   ```
+
+   O segundo comando deve mostrar `Python 3.14.x`. Se o pip falhar no `pyclipper`, o venv foi criado com o Python errado: apague com `rmdir /s /q .venv` e repita.
+
+2. Frontend (uma vez):
+
+   ```cmd
+   cd frontend && npm install && cd ..
+   ```
+
+3. Configuração (uma vez). Copie o modelo e gere três valores aleatórios (rode a segunda linha três vezes):
+
+   ```cmd
+   copy .env.example .env
+   .venv\Scripts\python.exe -c "import secrets; print(secrets.token_urlsafe(32))"
+   notepad .env
+   ```
+
+   No `.env`, cole um valor em `DB_PASSWORD=`, outro em `MARIADB_ROOT_PASSWORD=` e outro em `JWT_SECRET=`. Salve.
+
+4. Subir o banco (sempre que ligar o computador). Se outra cópia do projeto estiver com o MariaDB na porta 3320, pare-a antes, na pasta dela, com `db.sh stop`:
+
+   ```cmd
+   "C:\Program Files\Git\bin\bash.exe" scripts/db.sh start
+   ```
+
+   Termina com `MariaDB pronto na porta 3320.`
+
+5. Importar os dados (uma vez, ou quando os dados mudarem; leva alguns minutos):
+
+   ```cmd
+   .venv\Scripts\python.exe importacao\import_data.py --promover
+   ```
+
+   Termina com `Carga concluída: {... 'EDIFICACOES': 55255, ... 'EDIFICACOES_DESCONHECIDO': 32071}` e `Done.` O aviso `contorno do município ausente, Overture sem recorte` é esperado: o contorno é opcional e o arquivo do Overture já vem recortado no município.
+
+6. API (janela própria; carrega o modelo de IA ao subir):
+
+   ```cmd
+   start "API" cmd /k .venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+   ```
+
+7. Frontend (janela própria):
+
+   ```cmd
+   start "Web" cmd /k "cd frontend && npm run dev -- --port 5173 --host 127.0.0.1"
+   ```
+
+8. Abra **http://127.0.0.1:5173/**, crie uma conta na aba "Cadastrar" e clique num prédio cinza ("Não identificado") para ver o uso estimado por IA. Exemplo direto: http://127.0.0.1:5173/?predio=172 mostra "Comercial · Previsto por IA · 63%".
+
+Testes (opcional): `.venv\Scripts\python.exe -m pytest tests -q` e `cd frontend && npm test`.
+
+Para parar: feche as janelas "API" e "Web" e rode `"C:\Program Files\Git\bin\bash.exe" scripts/db.sh stop`.
+
+### Linux e macOS (bash)
 
 ```bash
-# 1) Ambiente Python (uma vez)
+# 1) Ambiente Python (uma vez; use um Python de 3.10 a 3.14)
 python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 
@@ -120,7 +196,7 @@ cd frontend && npm install && cd ..
 # 3) Configuração (uma vez): copie e preencha MARIADB_ROOT_PASSWORD, DB_PASSWORD e JWT_SECRET
 cp .env.example .env
 
-# 4) Tudo de uma vez (usa dados existentes; importe só quando necessário)
+# 4) Tudo de uma vez (banco, importação, API e frontend)
 bash scripts/run.sh
 ```
 
