@@ -42,3 +42,6 @@ frontend/.env.*
 # Ambientes virtuais e dependências (qualquer nome/pasta)
 venv/
 node_modules/
+
+#Claude
+.claude/
