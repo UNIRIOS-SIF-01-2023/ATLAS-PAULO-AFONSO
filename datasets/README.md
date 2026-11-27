@@ -48,6 +48,7 @@ Itens marcados com **[a confirmar]** dependem de informação que só a equipe t
   | 7 | Edificação em construção | 2.902 | desconhecido |
   | 8 | Estabelecimento religioso | 305 | religioso |
 
+- **Se o arquivo veio compactado** (`qg_810_endereco_Munic2924009.json.zip`), descompacte em `data/raw/qg/` antes da carga, que lê o JSON nesse caminho (`QG_ENDERECOS` em `importacao/config.py`): `unzip qg_810_endereco_Munic2924009.json.zip -d data/raw/qg/`.
 - **Como obter [a confirmar]:** a página do IBGE de onde o arquivo foi baixado e o que significa o prefixo `qg_810` (o arquivo parece exportado de um SIG, pois traz `crs` e `name`). O IBGE publica as coordenadas do CNEFE 2022 por município no portal de downloads de Geociências, na área do Censo 2022. O código do município é `2924009`.
 
 ## OpenStreetMap: fallback opcional
