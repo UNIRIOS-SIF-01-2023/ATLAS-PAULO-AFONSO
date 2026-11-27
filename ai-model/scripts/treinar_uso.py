@@ -1,13 +1,13 @@
 """Treina o classificador de uso com os dados do banco e grava modelo, métricas e relatório.
 
 Uso (na raiz do repositório):
-    ./.venv/Scripts/python scripts/treinar_uso.py
+    ./.venv/Scripts/python ai-model/scripts/treinar_uso.py
 """
 
 import sys
 from pathlib import Path
 
-RAIZ = Path(__file__).resolve().parents[1]
+RAIZ = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(RAIZ))
 
 from backend import db  # noqa: E402
@@ -27,7 +27,7 @@ def main():
     print(f"  escolhido: {metricas['melhor']['params']}")
     print("Treinando o modelo final (calibrado)...")
     payload = treinar_final(base, metricas["melhor"]["params"])
-    escrever_saidas(payload, metricas, RAIZ / "backend" / "ia", RAIZ / "docs" / "ia" / "avaliacao_modelo.md")
+    escrever_saidas(payload, metricas, RAIZ / "ai-model" / "models", RAIZ / "docs" / "ia" / "avaliacao_modelo.md")
     print(f"Pronto: modelo {payload['versao']}.")
 
 

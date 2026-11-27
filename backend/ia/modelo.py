@@ -18,13 +18,13 @@ from .features import NOMES, mascara_previsao, mascara_treino, montar_features
 
 logger = logging.getLogger(__name__)
 
-PASTA = Path(__file__).resolve().parent
+PASTA = Path(__file__).resolve().parents[2] / "ai-model" / "models"
 CAMINHO_MODELO = PASTA / "modelo_uso.joblib"
 CAMINHO_INFO = PASTA / "modelo_uso.json"
 
 
 def carregar(caminho: Path = CAMINHO_MODELO) -> dict | None:
-    """Payload do treino (scripts/treinar_uso.py), ou None se faltar ou não servir."""
+    """Payload do treino (ai-model/scripts/treinar_uso.py), ou None se faltar ou não servir."""
     try:
         payload = joblib.load(caminho)
     except Exception:

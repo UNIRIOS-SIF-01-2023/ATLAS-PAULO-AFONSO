@@ -467,7 +467,7 @@ def search(
     return db.search(q, limit=limit)
 
 
-MODELO_INDISPONIVEL = "Modelo de uso indisponível no servidor (rode scripts/treinar_uso.py)."
+MODELO_INDISPONIVEL = "Modelo de uso indisponível no servidor (rode ai-model/scripts/treinar_uso.py)."
 
 
 @app.post("/api/predict-uso", response_model=PredictUsoOut)

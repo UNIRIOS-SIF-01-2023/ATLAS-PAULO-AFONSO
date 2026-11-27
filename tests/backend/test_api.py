@@ -1,6 +1,6 @@
 """Testes essenciais (P6): só pontos críticos, sem cobertura completa.
 
-Roda com: python -m pytest backend/tests -q (lê o .env da raiz)
+Roda com: python -m pytest tests -q (lê o .env da raiz)
 (dependências de dev: pytest, httpx)
 """
 

@@ -1,4 +1,4 @@
-"""Treino e avaliação do classificador de uso (chamado por scripts/treinar_uso.py)."""
+"""Treino e avaliação do classificador de uso (chamado por ai-model/scripts/treinar_uso.py)."""
 
 import hashlib
 import json
@@ -221,7 +221,7 @@ def _relatorio(payload, metricas, treinado_em):
     d = m["dados"]
     linhas = [
         "# Avaliação do classificador de uso das edificações", "",
-        f"Gerado por `scripts/treinar_uso.py` em {treinado_em}. Modelo `{payload['versao']}`, semente {SEMENTE}.", "",
+        f"Gerado por `ai-model/scripts/treinar_uso.py` em {treinado_em}. Modelo `{payload['versao']}`, semente {SEMENTE}.", "",
         "## Dados", "",
         f"- Prédios: {d['n_total']}; rotulados pelo CNEFE (treino): {d['n_treino']}; "
         f"sem uso conhecido (recebem previsão): {d['n_previsao']}.", "",

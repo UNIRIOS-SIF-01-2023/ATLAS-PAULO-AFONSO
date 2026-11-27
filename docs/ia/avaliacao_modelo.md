@@ -1,6 +1,6 @@
 # Avaliação do classificador de uso das edificações
 
-Gerado por `scripts/treinar_uso.py` em 2026-11-22T20:46:01+00:00. Modelo `uso-20261122-a82af781`, semente 42.
+Gerado por `ai-model/scripts/treinar_uso.py` em 2026-11-22T20:46:01+00:00. Modelo `uso-20261122-a82af781`, semente 42.
 
 ## Dados
 
